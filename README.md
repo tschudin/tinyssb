@@ -6,5 +6,5 @@ without the need for carriers.
 
 ## Docs
 
-- (Rumpelstiltskin Talk)[./rumpelstiltskin] (pfd and demo code)
+- [Rumpelstiltskin Talk](./rumpelstiltskin) (pfd and demo code)
 
