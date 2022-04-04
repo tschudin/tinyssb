@@ -1,10 +1,11 @@
-# Low-Level Secure Scuttlebutt (llssb)
+# tinySSB - a small, compact and frugal version of Secure Scuttlebutt
 
-A compact packet format (128B) for replicating append-only logs,
-hopefully even over narrowband shortwaves, working globally and
-without the need for carriers.
+tinySSB has a compact packet format (128B) for replicating append-only
+logs that works hopefully even over narrowband shortwaves and LoRa,
+working globally and without the need for carriers.
 
 ## Docs
 
-- [Rumpelstiltskin Talk](./doc/rumpelstiltskin) (pfd and demo code)
+- [Talking like Rumpelstiltskin](./doc/rumpelstiltskin) (pfd and demo code)
+
 
