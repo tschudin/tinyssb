@@ -7,7 +7,8 @@ working globally and without the need for carriers.
 ## Docs
 
 - 01 [Talking like Rumpelstiltskin](./doc/01-rumpelstiltskin) (pfd and demo code)
-- 02 [tinySSB packet spec](./doc/02-packet-spec) (pfd)
+- 02 [Predictive Gossip (Rationale for tinySSB, outdated)](./doc/02-predictive-gossip) (pfd)
+- 03 [tinySSB packet spec](./doc/03-packet-spec) (pfd)
 
 
 ---
