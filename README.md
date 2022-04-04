@@ -6,6 +6,8 @@ working globally and without the need for carriers.
 
 ## Docs
 
-- [Talking like Rumpelstiltskin](./doc/rumpelstiltskin) (pfd and demo code)
+- 01 [Talking like Rumpelstiltskin](./doc/01-rumpelstiltskin) (pfd and demo code)
+- 02 [tinySSB packet spec](./doc/02-packet-spec) (pfd)
 
 
+---
