@@ -65,7 +65,7 @@ that log entry (which are thus taken from the signature field).
 Because it is possible that a parent feed declared the same child feed
 several times, either by accident or maliciously, this binds a child's
 first log entry to exactly one entry in the parent's log and removes
-and ambiguity.
+any ambiguity.
 
 \newpage
 Four packet types are introduced to encode feed relationships:
@@ -139,15 +139,15 @@ we leave this further studies.
 
 # 3) Discussion
 
-In this section we quickly relate our tree-related primitives with
+In this section we quickly relate our tree-forming primitives with
 those proposed in SSB's metafeed spec at
 $\rightarrow$[https://github.com/ssb-ngi-pointer/ssb-meta-feeds-spec](https://github.com/ssb-ngi-pointer/ssb-meta-feeds-spec).
 
 The four packet types above form a minimal layer for expressing
 dependency in a way that enforces a tree shape. One can design a
-second layer of dependency, but without such guarantee, at
-application layer that uses ordinary plain48 or chain20 messages. In
-such 2nd layer dependency messages, things could be expressed like:
+second layer of dependency, but without such guarantee, at application
+layer. In such app'layer dependency messages, things could be
+expressed like:
 
 - mount      (called ```metafeed/add/existing``` in the SSB metafeed spec)
 - unmount    (called ```metafeed/tombstone``` in the SSB metafeed spec)
@@ -157,11 +157,13 @@ The verb ```mount``` is borrowed from the UNIX vocabulary as it
 relates to extending tree-shaped file systems - and explains quite
 well the intent of the SSB metafeed design, we think. One could also
 have used the UNIX concept of symbolic links (```symlink(), unlink(),
-S_ISLINK()```) for this discussion. The point we want to stress is
-that these higher-level tree construction primitives can't prevent
-loop formation. The SSB metafeed spec does not discuss the problematic
-case where one metafeed would "add/existing" another metafeed, whether
-this desirable and how applications should deal with it.
+S_ISLINK()```) for this discussion. The point we want to stress here
+is that these higher-level tree construction primitives can't prevent
+loop formation. For exampel, we note that the SSB metafeed spec does
+not discuss the problematic case where one metafeed would "adopt", via
+a ```add/existing``` action, another (meta)feed. Two colluding feeds
+can cross-reference each other, leading to a situation where the two
+feeds cannot be ordered anymore inside a hierchary.
 
 SSB's ```metafeed/add/derived``` action is, tree-wise, already covered by
 our low-level ```mkchild``` action where the parent feed includes the
