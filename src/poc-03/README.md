@@ -4,8 +4,8 @@ _2022-04-09 christian.tschudin@unibas.ch_
 
 Abstract: We introduce four packet types that permit to expose feed
 relationships to the forwarding substrate. Two utilities have been
-written for feeds: one that permits to create a hierarchy of feeds
-based on a easy-to-write template (```ftree_make```), and another one
+written for feeds: one that creates a hierarchy of feeds
+based on a easy-to-write template (```ftree_make```), and another tool
 to parse a persisted feed hierarchy and display its tree in graphical
 form (```ftree_load```).  A third utility (```log_dump```) expands
 binary log files, including blob chains, and dumps their content in
@@ -14,11 +14,11 @@ JSON format for easier debugging.
 
 # 1) A tree hierarchy for dependent feeds
 
-We introduce in tinySSB a way to express tree-shaped feed dependencies:
-a feed can have one or more children feeds and can end with an
-optional continuation feed. This is a special case of feed metadata
-where one feed exposes information about another feed. We aim at
-defining the minimal amount of meta data needed to form feed trees.
+We introduce in tinySSB a way to express tree-shaped feed
+dependencies: a feed can have one or more children feeds and can end
+with an optional continuation feed. Both cases require to store in a
+feed some metadata about another feed. Our aim was to define the
+minimal amount of meta data needed to form such trees of feeds.
 
 A parent-child relationship naturally forms a tree, extending it
 vertically. Horizontally, we introduce continuation feeds that
@@ -52,8 +52,9 @@ find_root(x):
   return x
 ```
 
-This is useful, for example, if trust claims are linked to the root feed
-and these trust claims should also apply to all dependent feeds.
+This is useful if for example trust claims are linked to the root
+feed and any dependent sub feed should inherit them. To know a feed's
+trust claims thus requires to find its root feed.
 
 The predecessor relationship is cryptographically protected such that
 no loops can form: Each dependent feed must provide a
@@ -62,8 +63,9 @@ block. This certificate consists of the feed ID of the parent, the
 sequence number where the child was declared, and the 12 last bytes of
 that log entry (which are thus taken from the signature field).
 Because it is possible that a parent feed declared the same child feed
-several times, either by accident or maliciously, this links a child's
-first log entry to exactly one entry in the parent's log.
+several times, either by accident or maliciously, this binds a child's
+first log entry to exactly one entry in the parent's log and removes
+and ambiguity.
 
 \newpage
 Four packet types are introduced to encode feed relationships:
@@ -103,7 +105,7 @@ mk_end_of_feed(toBeEnded):
 ```
 
 
-# 2) Encoding
+# 2) Encoding feed dependency information at packet level
 
 The presence of metafeed information is flagged by the packet's type.
 The metadata itself is stored in the packet's 48 bytes payload and varies
@@ -201,7 +203,7 @@ the next section), as well as the JSON-formatted keystore where each
 feed's secret key is recorded.
 
 Note that the keystore's sensitive content is only printed to stdout,
-thus putting the user in charge of grabbing the content and to store it
+thus putting the user in charge of grabbing that output and to store it
 in a safe place (which could be one of the feeds after encrypting
 them).
 
