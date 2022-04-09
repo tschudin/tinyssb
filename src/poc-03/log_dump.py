@@ -136,8 +136,10 @@ if __name__ == '__main__':
     else:
         # FIXME: parse chain depth command line parameter
         blobdir = '/'.join(sys.argv[1].split('/')[:-2]) + '/_blob'
+        print("[\n")
         for fn in glob.glob(sys.argv[1]):
             for d in dump_generator(fn, blobdir, -1):
-                print(util.json_pp(d) + '\n')
+                print(util.json_pp(d) + ',\n')
+        print("null\n]") # in order to output correct JSON code
 
 # eof
