@@ -25,7 +25,7 @@ state".  These subfeeds will be mutually subscribed to and can also be
 trusted because a "subfeed creation event" represent a certificate
 about its trustworthyness.
 
-In a second step, assume that a subfeed will be terminated from time
+In a second step, we assume that a subfeed will be terminated from time
 to time and at such times a continuation feed, called a segment, is
 declared and created. Each added session segment can also be trusted as
 there is a certificate chain from the root to the last segment in the
@@ -149,7 +149,7 @@ The session implementation shown in the previous section is not useful
 in case two peers have been out of touch for long times. In this case,
 it is probably better to either create a new session from scratch, or
 to skip the many session messages that accumulated during the
-separation and potentially are not relevant anymore ot not available
+separation and potentially are not relevant anymore or not available
 anymore because the sending node had limited storage for its logs. How
 can one know the latest "session segment log" used by a peer, without
 having to, or being able to run through all feed continuation events?
