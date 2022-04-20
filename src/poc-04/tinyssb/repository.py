@@ -30,27 +30,44 @@ from tinyssb.dbg import *
 
 if sys.implementation.name == 'micropython':
     def isfile(fn):
-        try:    return os.stat(fn)[0] & 0x8000 != 0
-        except: return False
+        try:
+            return os.stat(fn)[0] & 0x8000 != 0
+        except:
+            return False
+
+
     def isdir(dn):
-        try:    return os.stat(fn)[0] & 0x4000 != 0
-        except: return False
+        try:
+            return os.stat(fn)[0] & 0x4000 != 0
+        except:
+            return False
 else:
     isfile = os.path.isfile
-    isdir  = os.path.isdir
+    isdir = os.path.isdir
+
 
 class REPO:
 
     def __init__(self, path, verify_signature_fct):
         self.path = path
-        self.vfct = verify_signature_fct
-        try: os.mkdir(self.path + '/_logs')
-        except: pass
-        try: os.mkdir(self.path + '/_blob')
-        except: pass
+        self.verified = verify_signature_fct  # bool, signature verification successful
+        try:
+            os.mkdir(self.path + '/_logs')
+        except:
+            pass
+        try:
+            os.mkdir(self.path + '/_blob')
+        except:
+            pass
         self.open_logs = {}
 
     def _log_fn(self, fid):
+        """
+        A peer's log.
+        Return the (local) log for the corr. fid
+        :param fid: SSB identity
+        :return: path to the log
+        """
         return self.path + '/_logs/' + util.hex(fid) + '.log'
 
     def _blob_fn(self, hashval):
@@ -70,19 +87,19 @@ class REPO:
         if isfile(fn):
             print("log", fn, "already exists")
             return None
-        hdr  = bytes(12) # should have version and other magic bytes
+        hdr = bytes(12)  # should have version and other magic bytes
         hdr += fid
         hdr += parent_fid + parent_seq.to_bytes(4, 'big')
-        buf  = trusted_seq.to_bytes(4, 'big') + trusted_msgID
+        buf = trusted_seq.to_bytes(4, 'big') + trusted_msgID
         hdr += buf
         if buf120 == None:
-            hdr += buf # copy trusted seq number as front information
+            hdr += buf  # copy trusted seq number as front information
             pass
         else:
-            pkt = packet.from_bytes(buf120, fid, trusted_seq+1, trusted_msgID,
-                                    self.vfct)
+            pkt = packet.from_bytes(buf120, fid, trusted_seq + 1, trusted_msgID,
+                                    self.verified)
             if pkt == None: return None
-            hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid # as front
+            hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid  # as front
         assert len(hdr) == 128, "log file header must be 128B"
         with open(fn, 'wb') as f:
             f.write(hdr)
@@ -91,7 +108,7 @@ class REPO:
 
     def mk_generic_log(self, fid, typ, buf48, signFct,
                        parent_fid=bytes(32), parent_seq=0):
-        prev = fid[:20]   # this is a convention, like a self-signed cert
+        prev = fid[:20]  # this is a convention, like a self-signed cert
         genesis_block = packet.PACKET(fid, 1, prev)
         genesis_block.mk_typed_entry(typ, buf48, signFct)
         return self.allocate_log(fid, 0, prev, genesis_block.wire,
@@ -103,7 +120,7 @@ class REPO:
         assert len(payload) == 48
         p = self.get_log(parentFID)
         pkt = p.write_typed_48B(packet.PKTTYPE_mkchild, payload, parentSign)
-        buf48 = pkt.fid + pkt.seq.to_bytes(4,'big') + pkt.wire[-12:]
+        buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
         newFeed = self.mk_generic_log(childFID, packet.PKTTYPE_ischild,
                                       buf48, childSign, pkt.fid, pkt.seq)
         return [pkt, newFeed[1]]
@@ -113,16 +130,16 @@ class REPO:
         p = self.get_log(prevFID)
         pkt = p.write_typed_48B(packet.PKTTYPE_contdas,
                                 contFID + bytes(16), prevSign)
-        buf48 = pkt.fid + pkt.seq.to_bytes(4,'big') + pkt.wire[-12:]
+        buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
         newFeed = self.mk_generic_log(contFID, packet.PKTTYPE_iscontn,
-                                   buf48, contSign)
+                                      buf48, contSign)
         return [pkt, newFeed[1]]
 
-    def get_log(self, fid): # returns a LOG, or None
+    def get_log(self, fid):  # returns a LOG, or None
         if not fid in self.open_logs:
             fn = self._log_fn(fid)
             if not isfile(fn): return None
-            l = LOG(fn, self.vfct)
+            l = LOG(fn, self.verified)
             if l == None: return None
             self.open_logs[fid] = l
         return self.open_logs[fid]
@@ -141,12 +158,14 @@ class REPO:
         dn = fn[:-39]
         if not isdir(dn):   os.mkdir(dn)
         if isfile(fn):      return
-        with open(fn, "wb+") as f:  f.write(buf120)
+        with open(fn, "wb+") as f:
+            f.write(buf120)
         return hptr
 
     def get_blob(self, hashptr):
         try:
-            with open(self._blob_fn(hashptr), "rb") as f: return f.read(120)
+            with open(self._blob_fn(hashptr), "rb") as f:
+                return f.read(120)
         except Exception as e:
             # print("get_blob", e)
             pass
@@ -161,7 +180,7 @@ class REPO:
         # should we check our own signature here, use feed.append(pkt.wire)?
         feed._append(pkt)
         return [pkt.wire] + blobs
-        
+
     '''
     def get_peer(fid): # -> PEER
         pass
@@ -173,28 +192,29 @@ class REPO:
        delete all log objects in self.open_logs
     '''
 
+
 # ----------------------------------------------------------------------
 
 class LOG:
 
-    def __init__(self, fn, verify_signature_fct):
+    def __init__(self, fileName, verify_signature_fct):
         # self.fn = fn
         self.vfct = verify_signature_fct
-        self.f = open(fn, 'rb+')
+        self.f = open(fileName, 'rb+')
         self.f.seek(0)
         hdr = self.f.read(128)
-        hdr = hdr[12:]                                # first 12B unused
-        self.fid  = hdr[:32]
+        hdr = hdr[12:]  # first 12B unused
+        self.fid = hdr[:32]
         self.parfid = hdr[32:64]
         self.parseq = int.from_bytes(hdr[64:68], 'big')
-        self.anchrS = int.from_bytes(hdr[68:72], 'big') # trusted seqNr
-        self.anchrM = hdr[72:92]                        # trusted msgID
-        self.frontS = int.from_bytes(hdr[92:96], 'big') # seqNr of last rec
-        self.frontM = hdr[96:116]                       # msgID of last rec
+        self.anchrS = int.from_bytes(hdr[68:72], 'big')  # trusted seqNr
+        self.anchrM = hdr[72:92]  # trusted msgID
+        self.frontS = int.from_bytes(hdr[92:96], 'big')  # seqNr of last rec
+        self.frontM = hdr[96:116]  # msgID of last rec
         self.f.seek(0, 2)
         assert self.f.tell() == 128 + 128 * (self.frontS - self.anchrS), \
-               "log file length mismatch"
-        self.acb = None # append callback
+            "log file length mismatch"
+        self.acb = None  # append callback
         self.subscription = 0
 
     def __getitem__(self, seq):
@@ -218,19 +238,19 @@ class LOG:
     def _append(self, pkt):
         assert pkt.seq == self.frontS + 1, "new log entry not in sequence"
         # append to file:
-        self.f.seek(0,2)
+        self.f.seek(0, 2)
         self.f.write(bytes(8) + pkt.wire)
         # update file header:
         self.frontS += 1
         self.frontM = pkt.mid
-        self.f.seek(12+92) # position of front fields
+        self.f.seek(12 + 92)  # position of front fields
         self.f.write(self.frontS.to_bytes(4, 'big') + self.frontM)
         self.f.flush()
         # os.fsync(self.f.fileno())
         return pkt
 
     def append(self, buf120):
-        pkt = packet.from_bytes(buf120, self.fid, self.frontS+1, self.frontM,
+        pkt = packet.from_bytes(buf120, self.fid, self.frontS + 1, self.frontM,
                                 self.vfct)
         if pkt == None: return None
         self._append(pkt)
@@ -243,15 +263,15 @@ class LOG:
 
     def write_typed_48B(self, typ, buf48, signfct):
         assert len(buf48) == 48
-        e = packet.PACKET(self.fid, self.frontS+1, self.frontM)
+        e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)
         e.mk_typed_entry(typ, buf48, signfct)
         return self.append(e.wire)
 
     def write_eof(self, signfct):
         return self.write_typed_48B(packet.PKTTYPE_contdas, bytes(48), signfct)
 
-    def prepare_chain(self, buf, signfct): # returns list of packets, or None
-        e = packet.PACKET(self.fid, self.frontS+1, self.frontM)
+    def prepare_chain(self, buf, signfct):  # returns list of packets, or None
+        e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)
         blobs = e.mk_chain(buf, signfct)
         return e, blobs
 
@@ -260,6 +280,7 @@ class LOG:
 
     def set_append_cb(self, fct=None):
         self.acb = fct
+
 
 # ----------------------------------------------------------------------
 
