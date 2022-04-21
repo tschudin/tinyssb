@@ -165,20 +165,20 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.arm_dmx(d) # remove current DMX handler, request was satisfied
         # FIXME: instead of eager blob request, make this policy-dependend
         if pkt.typ[0] == packet.PKTTYPE_contdas: # switch feed
-            dbg(GRE, f'  told to stop old feed {pkt.fid.hex()[:20]}../{pkt.seq}')
+            dbg(GRE, f'  told to stop old feed {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
             feed = repo.allocate_log(newFID, 0, newFID[:20]) # install cont.
-            dbg(GRE, f'  ... and to switch to new feed {newFID.hex()[:20]}..')
+            dbg(GRE, f'  ... and to switch to new feed {util.hex(newFID)[:20]}..')
             # feed.subscription += 1
             feed.set_append_cb(oldfeed.acb)
             # oldfeed = None
         elif pkt.typ[0] == packet.PKTTYPE_mkchild:
-            dbg(GRE, f'  told to create subfeed for {pkt.fid.hex()[:20]}../{pkt.seq}')
+            dbg(GRE, f'  told to create subfeed for {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
             newFeed = repo.allocate_log(newFID, 0, newFID[:20]) # install cont.
-            dbg(GRE, f'    new child is {newFID.hex()[:20]}..')
+            dbg(GRE, f'    new child is {util.hex(newFID)[:20]}..')
             newFeed.set_append_cb(oldfeed.acb)
             pktdmx = packet._dmx(newFID + int(1).to_bytes(4, 'big') + newFID[:20])
             # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(newFID)[:20]}.[1] /mkchild")
@@ -254,8 +254,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 # dbg(GRA, f"SND {len(wire)} want request to dmx={d} for {h}.[{seq}]")
 
     def request_chain(self, pkt):
-        print("request_chain", pkt.fid.hex()[:8], pkt.seq,
-              pkt.chain_nextptr.hex() if pkt.chain_nextptr else None)
+        print("request_chain", util.hex(pkt.fid)[:8], pkt.seq,
+              util.hex(pkt.chain_nextptr) if pkt.chain_nextptr else None)
         hptr = pkt.chain_nextptr
         if hptr == None: return
         # dbg(GRA, f"+blob @{util.hex(hptr)}")
@@ -274,7 +274,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         want_dmx = packet._dmx(self.me + b'want')
         # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} / me {util.hex(self.me)[:20]}...")
         self.arm_dmx(want_dmx,
-                        lambda buf,n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {self.me.hex()[:20]}")
+                        lambda buf,n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {util.hex(self.me)[:20]}")
 
         # prepare to serve blob requests
         blob_dmx = packet._dmx(b'blobs')
