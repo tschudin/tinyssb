@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 # tinyssb/repository.py  -- disk storage for logs and blobs (sidechains)
+# 2022-04-06 <christian.tschudin@unibas.ch>
 
 '''
 directory structure of a repository:
@@ -25,6 +26,7 @@ import os
 import sys
 
 from tinyssb import packet, util
+from tinyssb.dbg import *
 
 if sys.implementation.name == 'micropython':
     def isfile(fn):
@@ -33,10 +35,9 @@ if sys.implementation.name == 'micropython':
         except:
             return False
 
-
-    def isdir(dn):
+    def isdir(directory_name):
         try:
-            return os.stat(fn)[0] & 0x4000 != 0
+            return os.stat(directory_name)[0] & 0x4000 != 0
         except:
             return False
 else:
@@ -47,8 +48,9 @@ else:
 class REPO:
 
     def __init__(self, path, verify_signature_fct):
+        # FIXME: verify = function or bool (result of fct)?
         self.path = path
-        self.vfct = verify_signature_fct
+        self.verified = verify_signature_fct  # bool, signature verification successful
         try:
             os.mkdir(self.path + '/_logs')
         except:
@@ -59,10 +61,16 @@ class REPO:
             pass
         self.open_logs = {}
 
-    def _log_file_name(self, fid):
+    def _log_fn(self, fid):
+        """
+        Path to the file for a log entry.
+        :param fid: SSB identity
+        :return: path to the (local) log for the corresponding fid
+        """
         return self.path + '/_logs/' + util.hex(fid) + '.log'
 
     def _blob_fn(self, hashval):
+        """Path to the file for a blob"""
         h = util.hex(hashval)
         return self.path + '/_blob/' + h[:2] + '/' + h[2:]
 
@@ -72,12 +80,12 @@ class REPO:
             lst.append(util.fromhex(fn.split('.')[0]))
         return lst
 
-    def create_log(self, fid, trusted_seq, trusted_msgID,
-                   buf120=None, parent_fid=bytes(32), parent_seq=0):
+    def allocate_log(self, fid, trusted_seq, trusted_msgID,
+                     buf120=None, parent_fid=bytes(32), parent_seq=0):
         # use this to create a file where entries can start at any index
-        file_name = self._log_file_name(fid)
-        if isfile(file_name):
-            print("log", file_name, "already exists")
+        fn = self._log_fn(fid)  # file_name
+        if isfile(fn):
+            print("log", fn, "already exists")
             return None
         hdr = bytes(12)  # should have version and other magic bytes
         hdr += fid
@@ -85,36 +93,65 @@ class REPO:
         buf = trusted_seq.to_bytes(4, 'big') + trusted_msgID
         hdr += buf
         if buf120 == None:
-            hdr += buf  # copy trusted seq number to front
+            hdr += buf  # copy trusted seq number as front information
+            pass
         else:
             pkt = packet.from_bytes(buf120, fid, trusted_seq + 1, trusted_msgID,
-                                    self.vfct)
+                                    self.verified)
             if pkt == None: return None
-            hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid
+            hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid  # as front
         assert len(hdr) == 128, "log file header must be 128B"
-        with open(file_name, 'wb') as f:
+        with open(fn, 'wb') as f:
             f.write(hdr)
             if buf120 != None: f.write(bytes(8) + buf120)
         return self.get_log(fid)
 
-    def genesis_log(self, fid, buf48, sign_function,
-                    parent_fid=bytes(32), parent_seq=0):
-        # use this to create a file where entries start at seq=1
+    def mk_generic_log(self, fid, typ, buf48, signFct,
+                       parent_fid=bytes(32), parent_seq=0):
+        """Create a log file where entries start at seq=fid[:20]"""
         prev = fid[:20]  # this is a convention, like a self-signed cert
-        # TODO: packet-spec.md says it's 0 overall
         genesis_block = packet.PACKET(fid, 1, prev)
-        genesis_block.mk_plain_entry(buf48, sign_function)
-        return self.create_log(fid, 0, prev, genesis_block.wire,
-                               parent_fid, parent_seq)
+        genesis_block.mk_typed_entry(typ, buf48, signFct)
+        return self.allocate_log(fid, 0, prev, genesis_block.wire,
+                                 parent_fid, parent_seq)
+
+    def mk_child_log(self, parentFID, parentSign, childFID, childSign,
+                     usage=bytes(16)):
+        payload = childFID + usage
+        assert len(payload) == 48
+        p = self.get_log(parentFID)
+        pkt = p.write_typed_48B(packet.PKTTYPE_mkchild, payload, parentSign)
+        buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
+        newFeed = self.mk_generic_log(childFID, packet.PKTTYPE_ischild,
+                                      buf48, childSign, pkt.fid, pkt.seq)
+        return [pkt, newFeed[1]]
+
+    def mk_continuation_log(self, prevFID, prevSign, contFID, contSign):
+        # return both packets that were gerenated and appended
+        p = self.get_log(prevFID)
+        pkt = p.write_typed_48B(packet.PKTTYPE_contdas,
+                                contFID + bytes(16), prevSign)
+        buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
+        newFeed = self.mk_generic_log(contFID, packet.PKTTYPE_iscontn,
+                                      buf48, contSign)
+        return [pkt, newFeed[1]]
 
     def get_log(self, fid):  # returns a LOG, or None
         if not fid in self.open_logs:
-            file_name = self._log_file_name(fid)
-            if not isfile(file_name): return None
-            l = LOG(file_name, self.vfct)
+            fn = self._log_fn(fid)  # file name
+            if not isfile(fn): return None
+            l = LOG(fn, self.verified)
             if l == None: return None
             self.open_logs[fid] = l
         return self.open_logs[fid]
+
+    def del_log(self, fid):
+        if fid in self.open_logs:
+            feed = self.open_logs[fid]
+            feed.file.close()
+            del self.open_logs[fid]
+        fn = self._log_fn(fid)
+        os.unlink(fn)
 
     def add_blob(self, buf120):
         hptr = hashlib.sha256(buf120).digest()[:20]
@@ -130,9 +167,20 @@ class REPO:
         try:
             with open(self._blob_fn(hashptr), "rb") as f:
                 return f.read(120)
-        except:
+        except Exception as e:
+            # print("get_blob", e)
             pass
         return None
+
+    def persist_chain(self, pkt, blobs):
+        # first persist the blobs as otherwise we could have stored the
+        # log entry but not all blobs, in case of a node crash
+        for b in blobs:
+            self.add_blob(b)
+        feed = self.get_log(pkt.fid)
+        # should we check our own signature here, use feed.append(pkt.wire)?
+        feed._append(pkt)
+        return [pkt.wire] + blobs
 
     '''
     def get_peer(fid): # -> PEER
@@ -150,9 +198,10 @@ class REPO:
 
 class LOG:
 
-    def __init__(self, fn, verify_signature_fct):
-        self.verify_signature_fct = verify_signature_fct
-        self.file = open(fn, 'rb+')
+    def __init__(self, fileName, verify_signature_fct):
+        # self.fn = fn
+        self.verify_fct = verify_signature_fct
+        self.file = open(fileName, 'rb+')
         self.file.seek(0)
         hdr = self.file.read(128)
         hdr = hdr[12:]  # first 12B unused
@@ -166,10 +215,16 @@ class LOG:
         self.file.seek(0, 2)
         assert self.file.tell() == 128 + 128 * (self.frontS - self.anchrS), \
             "log file length mismatch"
+        self.acb = None  # append callback
+        self.subscription = 0
 
     def __getitem__(self, seq):
         if seq > self.frontS:
             raise IndexError
+        if seq < 0:
+            seq = self.frontS + seq + 1
+            if seq < 0:
+                raise IndexError
         pos = 128 * (seq - self.anchrS)
         self.file.seek(pos)
         buf = self.file.read(128)[8:]
@@ -195,15 +250,46 @@ class LOG:
         self.file.write(self.frontS.to_bytes(4, 'big') + self.frontM)
         self.file.flush()
         # os.fsync(self.f.fileno())
-        return True
+        return pkt
 
     def append(self, buf120):
         pkt = packet.from_bytes(buf120, self.fid, self.frontS + 1, self.frontM,
-                                self.verify_signature_fct)
-        return pkt != None and self._append(pkt)
+                                self.verify_fct)
+        if pkt == None: return None
+        self._append(pkt)
+        if self.acb != None:
+            self.acb(pkt)
+        return pkt
+
+    def write_plain_48B(self, buf48, signfct):
+        return self.write_typed_48B(packet.PKTTYPE_plain48, buf48, signfct)
+
+    def write_typed_48B(self, typ, buf48, signfct):
+        """
+        Create a packet and compute signature.
+        :param typ: 1 byte type
+        :param buf48: payload (will be padded)
+        :param signfct: signature fct
+        :return: updated self
+        """
+        assert len(buf48) == 48
+        e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)
+        e.mk_typed_entry(typ, buf48, signfct)
+        return self.append(e.wire)
+
+    def write_eof(self, signfct):
+        return self.write_typed_48B(packet.PKTTYPE_contdas, bytes(48), signfct)
+
+    def prepare_chain(self, buf, signfct):  # returns list of packets, or None
+        e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)
+        blobs = e.mk_chain(buf, signfct)
+        return e, blobs
 
     def getfront(self):
         return (self.frontS, self.frontM)
+
+    def set_append_cb(self, fct=None):
+        self.acb = fct
 
 
 # ----------------------------------------------------------------------

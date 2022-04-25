@@ -375,7 +375,7 @@ catch discrepancies.
   "dmx*": "c5ee6d3d75157e",
   "mid*": "8c4b51422137f4c58c8607843123ae0301377375",
   "raw_len": 120,
-  "raw": [
+  "raw": [  // DMX + T + PAYL + SIG
     "c5ee6d3d75157e006c6f6720656e747279203100000000000000000000000000",
     "0000000000000000000000000000000000000000000000004bae274d057dc330",
     "4ac164f882c3ff33320c2b02eed3ccf314361269600435881f3adc4a4b9b6b18",
@@ -404,9 +404,9 @@ catch discrepancies.
     "000000028c4b51422137f4c58c8607843123ae0301377375"
   ],
   "dmx*": "b4e6d193a436a4",
-  "mid*": "4f2c0baf0984bbf5caf620afe0a5e3e88af4f1b6",
+  "mid*": "4f2c0baf0984bbf5caf620afe0a5e3e88af4f1b6", // sha256(name + dmx + type + payl + sig)
   "raw_len": 120,
-  "raw": [
+  "raw": [ // DMX + T + PAYL + SIG
     "b4e6d193a436a40151446174653a20313634393435333234380a546f3a202a0a",
     "5375626a9a8f7b38a0760ab8f25ee105a2580bc9c2a46a2dda1800edb0fb7848",
     "61a319d536eac9e16704a99193dcc35a60f6085fc735115cfb985f6e37233c5e",
@@ -415,7 +415,7 @@ catch discrepancies.
   "hptr": "a1c63ab633add35993ebe1d631a6faa1585185c4",
   "dmx": "b4e6d193a436a4",
   "type": "0x01 = PKTTYPE_chain20",
-  "payload": [
+  "payload": [  // LENG + 
     "51446174653a20313634393435333234380a546f3a202a0a5375626a9a8f7b38",
     "a0760ab8f25ee105a2580bc9c2a46a2d"
   ],

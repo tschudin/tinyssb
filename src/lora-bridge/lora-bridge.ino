@@ -2,12 +2,23 @@
   tinySSB LoRa-to-WiFiUDP/BT/USB bridge
 
   2022-04-02 <christian.tschudin@unibas.ch>
+
+  Initialise IDE:
+  https://heltec-automation-docs.readthedocs.io/en/latest/esp32/quick_start.html
+
+  Activate licence:
+  https://heltec-automation-docs.readthedocs.io/en/latest/general/view_limited_technical_data.html#esp32-lora-series
+
+  Open Serial Monitor (in Tools)
 */
 
 // config:
 #define AP_SSID   "bridge"
 #define AP_PW     "tiny-ssb"
 #define UDP_PORT   5001
+
+// Must match IDE setting
+// #define BAUD_RATE 921600
 
 #define BTname    "tinyssb-bridge"
 
@@ -166,6 +177,7 @@ void setup() {
   LoRa.setTxPower(17,RF_PACONFIG_PASELECT_PABOOST);
   LoRa.receive();
 
+  //Serial.print("LoRa done\n");
   Heltec.display->init();
   Heltec.display->flipScreenVertically();  
   Heltec.display->setFont(ArialMT_Plain_10);
@@ -176,17 +188,20 @@ void setup() {
   Heltec.display->setTextAlignment(TEXT_ALIGN_LEFT);
   Heltec.display->setFont(ArialMT_Plain_10);
   delay(2000);
+  //Serial.print("Heltec done\n");
 
-  BT.begin(BTname);
-  BT.setPin("0000");
-  BT.write(KISS_FEND);
+//  BT.begin(BTname);
+//  BT.setPin("0000");
+//  BT.write(KISS_FEND);
+  //Serial.print("BT done\n");
 
-  WiFi.disconnect(true);
+//  WiFi.disconnect(true);
   delay(500);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PW, 7, 0, 2); // limit to two clients, only one will be served
   myIP = WiFi.softAPIP();
   delay(500);
+  //Serial.print("Wifi done\n");
 
   {
         struct sockaddr_in serv_addr;
@@ -207,9 +222,11 @@ void setup() {
       }
   }
 
+  //Serial.print("Showing screen\n");
   ShowIP();
   ShowCounters();
   Heltec.display->display();
+  //Serial.print("Start loop\n\n");
 }
 
 // --------------------------------------------------------------------------

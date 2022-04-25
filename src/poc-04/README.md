@@ -5,7 +5,7 @@ _2022-04-18 christian.tschudin@unibas.ch_
 ---
 
 Abstract: In this PoC we show how subfeeds and feed continuations (see
-PoC-03) enable two peers to evolve trustworthy session state with an
+PoC-03) enable two peers to evolve trustworthy session state with a
 small number of feeds of limited length, although the data exchange is
 going on forever. Using a single append-only log clearly would not be
 able to do so as the log would become arbitrarily long.  We introduce
@@ -23,7 +23,7 @@ Given two peers that mutually trust the other's identity feed, we
 let each peer create a subfeed that serves to synchronize "session
 state".  These subfeeds will be mutually subscribed to and can also be
 trusted because a "subfeed creation event" represent a certificate
-about its trustworthyness.
+about its trustworthiness.
 
 In a second step, we assume that a subfeed will be terminated from time
 to time and at such times a continuation feed, called a segment, is
@@ -41,7 +41,7 @@ chain. This configuration is shown in the following figure:
 ```
 
 Any peer which has not been in touch with A for some time can ask for
-all updates that occured during the separation and then catch up,
+all updates that occurred during the separation and then catch up,
 including the signed "feed hopping" (feed continuation) events. This
 will let subscribers node perform a trusted replication of the full
 subchain. We will now focus on a scenario where a session is to be
@@ -192,10 +192,10 @@ Proof of Concept 4.
 
 Our goal is to let two peers agree on a shared dictionary, also called
 a symbol table: if such a shared table exists, any reference to a
-symbol can be replaced by a small integer value that represents to
+symbol can be replaced by a small integer value that represents the
 index into that table. One use case is to communicate feed-specific
 information, for example the highest available sequence number, which
-means that in prinicple 32 Bytes are needed to reference the feed and
+means that in principle 32 Bytes are needed to reference the feed and
 then some more bytes for an integer value. Our goal is to bring the 34 to
 36 uncompressed bytes down to three or five bytes, dependening on the
 number of symbols in the table and the length of the feeds.
@@ -221,7 +221,7 @@ bytes) and to refer to them by small shortcuts (a few bytes for the
 offset into the symbol table). Such a table can also be used to find
 out whether a symbol was already encountered and that it therefore can
 be immediately replaced by its shortcut. Multiple applications can
-beneficially make us of one table in the case they refer to a
+beneficially make use of one table in the case they refer to a
 sufficiently overlapping set of long symbols. After use, we will require
 applications to release a shortcut: using a reference counter, we can
 then internally decide whether the corresponding table entry can be
@@ -286,7 +286,7 @@ data/Alice/keystore.json
 ```
 
 In separate terminal windows, start the symbol table-sharing apps for
-Alice and for Biob in any order (see below).
+Alice and for Bob in any order (see below).
 
 Alice will fill the symbol table with an initial set of ten entries
 and then periodically add a new random symbol and pick a random symbol
@@ -384,7 +384,7 @@ catchup phase (= processing already received log entries), Bob
 switches to upcall-style processing where new updates are digested as
 they trickle in. The catchup phase is an example why it is necessary
 for Bob to signal to Alice (using an acknowledgement message) when an
-old feed can be removed. Another reasons is that the delivery of a
+old feed can be removed. Another reason is that the delivery of a
 session feed segment could have been delayed by the network without
 Alice knowing it, hence prematurely removing it could potentially lead
 to data and session synchronization loss.
