@@ -215,7 +215,7 @@ class UDP_MULTICAST(FACE):
             self.snd_sock.setsockopt(socket.SOL_IP,
                                      socket.IP_MULTICAST_IF,
                                      bytes(4))
-        self.snd_addr = self.snd_sock.getsockname()
+            self.snd_addr = self.snd_sock.getsockname()
         
         self.rcv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rcv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

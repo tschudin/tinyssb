@@ -3,7 +3,15 @@
 # tinyssb/symtab.py  - a symbol table for replacing lengthy IDs by int values
 # 2022-04-11 <christian.tschudin@unibas.ch>
 
-import cbor2
+import sys
+if sys.implementation.name == 'micropython':
+    import tinyssb.lopy4_cbor as cbor2
+    import math
+    def bitlen(x): return math.ceil(math.log2(x+1))
+else:
+    import cbor2
+    def bitlen(x): return x.bit_length()
+
 
 from tinyssb import session
 from tinyssb.dbg import *
@@ -94,7 +102,7 @@ class Symtab(session.SlidingWindowClient):
             self.slw.write_plain_48B(cbor2.dumps([SYMTAB_RSZ, len(self.tbl)]))
 
         # find lowest set bit
-        a = (self.bitmap & ~(self.bitmap - 1)).bit_length() - 1
+        a = bitlen(self.bitmap & ~(self.bitmap - 1)) - 1
         self._insert(a, sym_c)
         self.slw.write_plain_48B(cbor2.dumps([SYMTAB_ADD, a, sym_c]))
         return a
@@ -111,9 +119,9 @@ class Symtab(session.SlidingWindowClient):
         self.slw.write_plain_48B(cbor2.dumps([SYMTAB_DEL, a]))
 
         if len(self.tbl) - self.cnt > 32: # shrink tbl
-            i = self.bitmap.bit_length()   # highest free entry, position
+            i = bitlen(self.bitmap     )   # highest free entry, position
             j = self.bitmap ^ ((1 << i)-1) # vector with highest busy entry
-            if i - j.bit_length() > 16:
+            if i - bitlen(j) > 16:
                 self.tbl = self.tbl[:-16]
                 self.bitmap &= (1 << len(self.tbl)) - 1
 
