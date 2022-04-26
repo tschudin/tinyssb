@@ -17,7 +17,7 @@ _draft 2022-03-23_
 
 <------------------- 128B ------------------->
 
-  8B                120B
+  8B                120B ("wire bytes")
 +-----+-------------------..-----------------+
 | RND | cloaked packet content               | frame
 +-----+-------------------..-----------------+
@@ -127,7 +127,7 @@ is not transmitted as actual bytes on the wire.
 ```
 LOG_ENTRY_NAME = PFX + FID + SEQ + PREV
 
-  where PFX   = 8B   'llssb-v0', for versioning packet formats
+  where PFX   = 10B  'tinyssb-v0', for versioning packet formats
         FID   = 32B  ed25519 public key (feed ID)
         SEQ   = 4B   sequence number in big endian format
         PREV  = 20B  message ID (MID) of preceding log entry
@@ -144,10 +144,10 @@ DMX = sha256(LOG_ENTRY_NAME)[:7]
 ## Log Entry -- Computing the (virtual) 120 Bytes _Expanded Log Entry_
 
 ```
-EXPANDED_LOG_ENTRY = LOG_ENTRY_NAME + DMX + T + PAYL
-                   = PFX + FID + SEQ + PREV + DMX + T + PAYL
+EXPANDED_LOG_ENTRY = LOG_ENTRY_NAME + DMX + TYP + PAYL
+                   = PFX + FID + SEQ + PREV + DMX + TYP + PAYL
 
-  where T     = 1B   signature algorithm and packet type
+  where TYP   = 1B   signature algorithm and packet type
         PAYL  = 48B  payload
 ```
 
@@ -161,7 +161,7 @@ SIG = ed25519_signature(secretkey, EXPANDED_LOG_ENTRY)
 
 ```
 FULL_LOG_ENTRY = EXPANDED_LOG_ENTRY + SIG
-               = PFX + FID + SEQ + PREV + DMX + T + PAYL + SIG
+               = PFX + FID + SEQ + PREV + DMX + TYP + PAYL + SIG
 
   where SIG   = 64B  signature
 ```
@@ -180,7 +180,7 @@ as PREV field (that is never transmitted).
 ## Log Entry -- Computing its 120 Bytes \textcolor{red}{\em Wire Format}
 
 ```
-PACKET = DMX + T + PAYL + SIG
+PACKET = DMX + TYP + PAYL + SIG
 ```
 
 
