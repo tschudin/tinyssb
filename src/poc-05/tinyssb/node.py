@@ -91,15 +91,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
     def write_typed_48B(self, fid, typ, buf48, sign):
         feed = self.repo.get_log(fid)
         self.ndlock.acquire()
-        ## FIXME
-        seq, prevhash = feed.getfront()
-        seq += 1
-        nextseq = seq.to_bytes(4, 'big')
-        pktdmx = packet._dmx(fid + nextseq + prevhash)
-        # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(fid)[:20]}.[{seq}]")
-        self.arm_dmx(pktdmx)
         pkt = feed.write_typed_48B(typ, buf48, sign)
-        ## FIXME: take dmx value from there
+        self.arm_dmx(pkt.dmx) # remove potential old demux handler
         self.ndlock.release()
         for f in self.faces:
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")

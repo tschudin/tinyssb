@@ -55,17 +55,11 @@ class SlidingWindow:
             dbg(GRA, f"SESS: ending feed {util.hex(oldFID)[:20]}..")
             pk = self.nd.ks.new('continuation')
             sign2 = lambda msg: self.nd.ks.sign(pk, msg)
-            seq, prevhash = self.lfd.getfront()
-            seq += 1
-            nextseq = seq.to_bytes(4, 'big')
-            pktdmx = packet._dmx(self.lfd.fid + nextseq + prevhash)
-            # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
-            self.nd.arm_dmx(pktdmx)
-            ## FIXME, take dmx once packet has been created!
             pkts = self.nd.repo.mk_continuation_log(self.lfd.fid,
                                                     self.lfdsign,
                                                     pk, sign2)
-            
+            # dbg(GRA, f"-dmx pkt@{util.hex(pkts[0].dmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
+            self.nd.arm_dmx(pkts[0].dmx)
             self.lfd = self.nd.repo.get_log(pkts[1].fid)
             if self.nd.sess.pfd == None:
                 self.nd.sess.pfd = oldFID
