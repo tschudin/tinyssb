@@ -42,23 +42,18 @@ if sys.implementation.name == 'micropython':
             return False
 else:
     isfile = os.path.isfile
-    isdir = os.path.isdir
+    isdir  = os.path.isdir
 
 
 class REPO:
 
     def __init__(self, path, verify_signature_fct):
-        # FIXME: verify = function or bool (result of fct)?
         self.path = path
-        self.verified = verify_signature_fct  # bool, signature verification successful
-        try:
-            os.mkdir(self.path + '/_logs')
-        except:
-            pass
-        try:
-            os.mkdir(self.path + '/_blob')
-        except:
-            pass
+        self.vfct = verify_signature_fct  # bool, signature verification successful
+        try: os.mkdir(self.path + '/_logs')
+        except: pass
+        try: os.mkdir(self.path + '/_blob')
+        except: pass
         self.open_logs = {}
 
     def _log_fn(self, fid):
@@ -97,7 +92,7 @@ class REPO:
             pass
         else:
             pkt = packet.from_bytes(buf120, fid, trusted_seq + 1, trusted_msgID,
-                                    self.verified)
+                                    self.vfct)
             if pkt == None: return None
             hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid  # as front
         assert len(hdr) == 128, "log file header must be 128B"
@@ -140,7 +135,7 @@ class REPO:
         if not fid in self.open_logs:
             fn = self._log_fn(fid)  # file name
             if not isfile(fn): return None
-            l = LOG(fn, self.verified)
+            l = LOG(fn, self.vfct)
             if l == None: return None
             self.open_logs[fid] = l
         return self.open_logs[fid]
@@ -193,7 +188,6 @@ class REPO:
        delete all log objects in self.open_logs
     '''
 
-
 # ----------------------------------------------------------------------
 
 class LOG:
@@ -209,9 +203,9 @@ class LOG:
         self.parfid = hdr[32:64]
         self.parseq = int.from_bytes(hdr[64:68], 'big')
         self.anchrS = int.from_bytes(hdr[68:72], 'big')  # trusted seqNr
-        self.anchrM = hdr[72:92]  # trusted msgID
+        self.anchrM = hdr[72:92]                         # trusted msgID
         self.frontS = int.from_bytes(hdr[92:96], 'big')  # seqNr of last rec
-        self.frontM = hdr[96:116]  # msgID of last rec
+        self.frontM = hdr[96:116]                        # msgID of last rec
         self.file.seek(0, 2)
         assert self.file.tell() == 128 + 128 * (self.frontS - self.anchrS), \
             "log file length mismatch"
@@ -290,7 +284,6 @@ class LOG:
 
     def set_append_cb(self, fct=None):
         self.acb = fct
-
 
 # ----------------------------------------------------------------------
 

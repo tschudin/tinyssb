@@ -72,7 +72,7 @@ class Replicator:
         if not pkt:
             dbg(RED, "    verification failed")
             return
-        self.nd.arm_dmx(d)  # remove current DMX handler, request was satisfied
+        self.nd.arm_dmx(d) # remove current DMX handler, request was satisfied
         h = util.hex(feed.fid)[:20]
         # dbg(GRE, f"    append {h}.[{len(feed)}]")
         self.request_latest(feed)
@@ -87,14 +87,14 @@ class Replicator:
     def incoming_chainedblob(self, cnt, h, buf, n):
         if len(buf) != 120: return
         # dbg(GRA, f"RCV blob@dmx={util.hex(h)} / chained")
-        self.nd.arm_blob(h)  # remove current blob handler, expected blob was received
+        self.nd.arm_blob(h) # remove current blob handler, expected blob was received
         self.nd.repo.add_blob(buf)
         hptr = buf[-20:]
         if hptr != bytes(20):
             # rearm a blob handler for the next blob in the chain:
             # dbg(GRA, f"    awaiting next blob {util.hex(hptr)}")
             cnt -= 1
-            if cnt == 0:  # aks for next batch of blob
+            if cnt == 0: # aks for next batch of blob
                 d = packet._dmx(b'blobs')
                 wire = d + hptr + int(4).to_bytes(2, 'big')
                 for f in self.nd.faces:
@@ -102,7 +102,7 @@ class Replicator:
                     # dbg(GRA, f"SND blob chain request to dmx={d.hex()} for {hptr.hex()}")
                 cnt = 4
             self.nd.arm_blob(hptr,
-                             lambda buf, n: self.incoming_chainedblob(cnt, hptr, buf, n))
+                        lambda buf,n: self.incoming_chainedblob(cnt,hptr,buf,n))
         else:
             # dbg(GRA, f"    end of chain was reached")
             pass
@@ -110,15 +110,15 @@ class Replicator:
     def arm_for_front(self, feed):
         if feed == self.myFeed: return
         seq, prevhash = feed.getfront()
-        nextseq = (seq + 1).to_bytes(4, 'big')
+        nextseq = (seq+1).to_bytes(4, 'big')
         pktdmx = packet._dmx(feed.fid + nextseq + prevhash)
         # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(feed.fid)[:20]}.[{seq+1}]")
         self.nd.arm_dmx(pktdmx,
-                        lambda buf, n: self.incoming_logentry(pktdmx, feed, buf, n))
+                        lambda buf,n: self.incoming_logentry(pktdmx, feed, buf, n))
 
     def request_latest(self, feed):
         self.arm_for_front(feed)
-        seq = len(feed) + 1
+        seq = len(feed)+1
         want_dmx = packet._dmx(feed.fid + b'want')
         wire = want_dmx + feed.fid + seq.to_bytes(4, 'big')
         # does not need padding to 128B, it's not a log entry or blob
@@ -135,7 +135,7 @@ class Replicator:
         if hptr == None: return
         # dbg(GRA, f"+blob @{util.hex(hptr)}")
         self.nd.arm_blob(hptr,
-                         lambda buf, n: self.incoming_chainedblob(4, hptr, buf, n))
+                    lambda buf,n: self.incoming_chainedblob(4,hptr,buf,n))
         d = packet._dmx(b'blobs')
         wire = d + hptr + int(4).to_bytes(2, 'big')
         for f in self.nd.faces:
@@ -149,14 +149,14 @@ class Replicator:
             want_dmx = packet._dmx(fid + b'want')
             # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} for {util.hex(fid)[:20]}...")
             self.nd.arm_dmx(want_dmx,
-                            lambda buf, n: self.incoming_want_request(want_dmx, buf, n))
+                        lambda buf,n: self.incoming_want_request(want_dmx, buf, n))
 
         # prepare to serve blob requests
         blob_dmx = packet._dmx(b'blobs')
         # dbg(GRA, f"+dmx blob@{util.hex(blob_dmx)}")
         self.nd.arm_dmx(blob_dmx,
-                        lambda buf, n: self.incoming_blob_request(blob_dmx, buf, n))
-        while True:  # periodic ARQ
+                        lambda buf,n: self.incoming_blob_request(blob_dmx, buf, n))
+        while True: # periodic ARQ
             now = time.time()
             if self.next_timeout[0] < now:
                 for fid in self.nd.repo.listlog():
@@ -168,7 +168,7 @@ class Replicator:
                     pkt.undo_chain(lambda h: self.nd.repo.get_blob(h))
                     if pkt.content_is_complete():
                         rm.append(pkt)
-                    else:  # FIXME: should have a max retry count
+                    else: # FIXME: should have a max retry count
                         self.request_chain(pkt)
                 for r in rm:
                     self.pending_chains.remove(pkt)
@@ -192,8 +192,8 @@ class ChatBackend:
         self.mySign = signFct
         self.logs = [self.nd.repo.get_log(fid) for fid in self.nd.repo.listlog()]
         self.myFeed = self.nd.repo.get_log(fid)
-        self.frontier = {l.fid: len(l) for l in self.logs}
-        self.msgs = []  # lst of (header lines, body lines, time)
+        self.frontier = {l.fid:len(l) for l in self.logs}
+        self.msgs = [] # lst of (header lines, body lines, time)
         self.read_mail()
         self.replicator = Replicator(nd, self.myFeed)
         self.replicator.start()
@@ -209,13 +209,13 @@ class ChatBackend:
             if p.fid == pkt.fid and p.seq == pkt.seq: return
         self.replicator.pending_chains.append(pkt)
 
-    def read_mail(self):  # update our list of messages
+    def read_mail(self): # update our list of messages
         msglst = []
         for l in self.logs:
             # print("read_mail", l.fid.hex(), len(l))
-            for i in range(len(l) - 1):
-                try:  # should detect chat messages, instead of trial
-                    pkt = l[i + 2]  # skip first log entry (with number 1)
+            for i in range(len(l)-1):
+                try: # should detect chat messages, instead of trial
+                    pkt = l[i+2] # skip first log entry (with number 1)
                     if not pkt.content_is_complete():
                         self._add_pending_chain(pkt)
                         # pkt.undo_chain(lambda h: myNode.repo.get_blob(h))
@@ -230,20 +230,18 @@ class ChatBackend:
                     hdrs = ['From: ' + sndr]
                     try:
                         pos = s.index('')
-                        hlst, body = s[:pos], s[pos + 1:]
+                        hlst, body = s[:pos], s[pos+1:]
                         senddate = 0
                         for i in hlst:
                             if i.startswith('Date: '):
-                                try:
-                                    senddate = int(i[6:])
-                                except:
-                                    pass
+                                try:    senddate = int(i[6:])
+                                except: pass
                         if senddate != 0:
                             hlst = ['Date: ' + time.ctime(senddate)] + \
                                    [h for h in hlst if not h.startswith('Date: ')]
-                        msglst.append((hdrs + hlst, body, senddate))
+                        msglst.append( (hdrs+hlst, body, senddate) )
                     except:
-                        msglst.append((hdrs + ["Subject:"], s, 0))
+                        msglst.append( (hdrs+["Subject:"], s, 0) )
                 except Exception as e:
                     print(e)
                     pass
@@ -259,41 +257,41 @@ class ChatBackend:
         else:
             pkt, blobs = self.myFeed.prepare_chain(msg, self.mySign)
             bufs = self.nd.repo.persist_chain(pkt, blobs)[:1]
-        self.nd.push(bufs)  # policy Q: only send out pkt, not blobs
-
+        self.nd.push(bufs) # policy Q: only send out pkt, not blobs
 
 # ----------------------------------------------------------------------
 
 class ChatFrontend:
+
     help = {
-        '-': "move to previous message and print it",
-        '?': "print this help text",
-        'header': "list up to 18 message headers",
-        'mail': "compose new mail",
-        'next': "move to next message and print it",
+        '-':     "move to previous message and print it",
+        '?':     "print this help text",
+        'header':"list up to 18 message headers",
+        'mail':  "compose new mail",
+        'next':  "move to next message and print it",
         'print': "print/show current mail message",
         'reply': "compose a reply to current message",
-        'sync': "sync up with new messages",
-        'quit': "terminates mail program (also: ^D, exit, xit)",
+        'sync':  "sync up with new messages",
+        'quit':  "terminates mail program (also: ^D, exit, xit)",
     }
 
     def __init__(self, backend, alias={}):
         self.backend = backend
-        self.currhdr = 0  # where the current 18-line header window starts
+        self.currhdr = 0 # where the current 18-line header window starts
         self.currmsg = 0
-        self.alias = alias
+        self.alias  = alias
         self.cmd_table = {
-            '-': self.cmd_prev,
-            'exit': self.cmd_exit,
-            '?': self.cmd_help,
+            '-':      self.cmd_prev,
+            'exit':   self.cmd_exit,
+            '?':      self.cmd_help,
             'header': self.cmd_header,
-            'mail': self.cmd_mail,
-            'next': self.cmd_next,
-            'print': self.cmd_print,
-            'reply': self.cmd_reply,
-            'sync': self.cmd_sync,
-            'quit': self.cmd_exit,
-            'xit': self.cmd_exit,
+            'mail':   self.cmd_mail,
+            'next':   self.cmd_next,
+            'print':  self.cmd_print,
+            'reply':  self.cmd_reply,
+            'sync':   self.cmd_sync,
+            'quit':   self.cmd_exit,
+            'xit':    self.cmd_exit,
         }
 
     def _countstr(self):
@@ -305,7 +303,7 @@ class ChatFrontend:
         s = [h for h in m[0] if h.startswith('Subject: ')]
         s = "<no subject>" if len(s) != 1 else s[0][9:]
         star = "*" if i == self.currmsg else " "
-        return ("%4d%s" % ((i + 1), star) + " " + s)[:79]
+        return ("%4d%s" % ((i+1),star) + " " + s)[:79]
 
     def cmd_exit(self, arglst):
         print("\nby now")
@@ -361,7 +359,7 @@ class ChatFrontend:
             print("aborted")
 
     def cmd_next(self, arglst):
-        if self.currmsg + 1 >= len(self.backend.msgs):
+        if self.currmsg+1 >= len(self.backend.msgs):
             print("no more messages")
             return
         self.currmsg += 1
@@ -394,7 +392,7 @@ class ChatFrontend:
             return
         hdr, body, _ = self.backend.msgs[self.currmsg]
         # should do line wrapping (at pos 79) and paging (after 18 lines) ...
-        print(f"--- #{self.currmsg + 1}")
+        print(f"--- #{self.currmsg+1}")
         for h in hdr:  print(h)
         print()
         for i in body: print(i)
@@ -434,7 +432,7 @@ class ChatFrontend:
                 if i < 1 or i > len(self.backend.msgs):
                     print("number out of range")
                     continue
-                self.currmsg = i - 1
+                self.currmsg = i-1
                 print(self._header_line(self.currmsg))
             elif len(lst) > 1:  # more than one comm. match
                 print("ambiguous command. Use ? to see list of commands")

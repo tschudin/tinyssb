@@ -19,10 +19,17 @@ b64 = lambda b: base64.b64encode(b).decode()
 # wrote our own json.dumps ..
 # because micropython's json.dumps() does not know how to pretty print
 def json_pp(d, indent=''):
+    # extended JSON (prints byte arrays as 0xHEXSEQUENCE)
+    def stringify(v):
+        if type(v) == bytes:
+            return "0x" + v.hex()
+        elif type(v) == str:
+            return '"' + v + '"'
+        return str(v)
     indent += '  '
     if d == None:      return "null"
-    if type(d) == int: return str(d)
-    if type(d) == str: return '"' + d + '"'
+    # if type(d) == int: return str(d)
+    # if type(d) == str: return '"' + d + '"'
     if type(d) == list:
         jsonstr = '[\n'
         cnt = 1
@@ -36,11 +43,11 @@ def json_pp(d, indent=''):
         jsonstr = '{\n'
         cnt = 1
         for k,v in d.items():
-            jsonstr += indent + '"' + k + '": ' + json_pp(v, indent)
+            jsonstr += indent + stringify(k) + ': ' + json_pp(v, indent)
             jsonstr += ',\n' if cnt < len(d) else '\n'
             cnt += 1
         jsonstr += indent[:-2] + '}'
         return jsonstr
-    return "??"
+    return stringify(d)
 
 # eof

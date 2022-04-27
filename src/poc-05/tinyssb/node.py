@@ -68,7 +68,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         """
         Manages the reception from all interfaces
         :param buf: the message
-        :param neigh: ?? not used (should be defined in io.run)
+        :param neigh: Interfaces available (added in IOLOOP.run)
         :return: nothing
         """
         # all tSSB packet reception logic goes here!
@@ -123,7 +123,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
         pktdmx = packet._dmx(fid + nextseq + prevhash)
         # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(fid)[:20]}.[{seq}]")
         self.arm_dmx(pktdmx)  # add following packet to the list of expected packet
-        pkt = feed.write_typed_48B(typ, buf48, sign) # !!! not recursive, LOG.write_typed_48B (in repository.py
+        pkt = feed.write_typed_48B(typ, buf48, sign)
+        ## FIXME: take dmx value from there
         self.ndlock.release()
         for f in self.faces:
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")
@@ -132,12 +133,20 @@ class NODE:  # a node in the tinySSB forwarding fabric
     # ----------------------------------------------------------------------
 
     def incoming_want_request(self, demx, buf, neigh):
-        # dbg(GRA, f'RCV want@dmx={demx.hex()} {self.comm[demx]}')
-        buf = buf[7:]
+        """
+        Handle want request.
+
+        Called from on_rx, added to self.dmxt in arm_dmx (from arq_loop)
+        :param demx: DMX field of excpected packet
+        :param buf: packet "as on the wire"
+        :param neigh: the corresponding IO interface
+        :return: nothing
+        """
+        buf = buf[7:]  # cut the DMX away
         while len(buf) >= 24:
             fid = buf[:32]
             seq = int.from_bytes(buf[32:36], 'big')
-            h = util.hex(fid)[:20]
+            h = util.hex(fid)[:20]  # idea: seq -= h?
             feed = None
             try:
                 feed = self.repo.get_log(fid)
@@ -155,9 +164,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
 
     def incoming_blob_request(self, demx, buf, neigh):
         # dbg(GRA, f'RCV blob@dmx={util.hex(demx)}')
-        buf = buf[7:]
+        buf = buf[7:]  # cut DMX off
         while len(buf) >= 22:
             hptr = buf[:20]
+            # Take the first 3 bytes of the header: the last of the chain is only 0s (whole header)
+            # FIXME : compute count on each iteration?
             cnt = int.from_bytes(buf[20:22], 'big')
             try:
                 while cnt > 0:
@@ -191,20 +202,20 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.arm_dmx(d)  # remove current DMX handler, request was satisfied
         # FIXME: instead of eager blob request, make this policy-dependent
         if pkt.typ[0] == packet.PKTTYPE_contdas:  # switch feed
-            dbg(GRE, f'  told to stop old feed {pkt.fid.hex()[:20]}../{pkt.seq}')
+            dbg(GRE, f'  told to stop old feed {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
             feed = repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
-            dbg(GRE, f'  ... and to switch to new feed {newFID.hex()[:20]}..')
+            dbg(GRE, f'  ... and to switch to new feed {util.hex(newFID)[:20]}..')
             # feed.subscription += 1
             feed.set_append_cb(oldfeed.acb)
             # oldfeed = None
         elif pkt.typ[0] == packet.PKTTYPE_mkchild:
-            dbg(GRE, f'  told to create subfeed for {pkt.fid.hex()[:20]}../{pkt.seq}')
+            dbg(GRE, f'  told to create subfeed for {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
             newFeed = repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
-            dbg(GRE, f'    new child is {newFID.hex()[:20]}..')
+            dbg(GRE, f'    new child is {util.hex(newFID)[:20]}..')
             newFeed.set_append_cb(oldfeed.acb)
             pktdmx = packet._dmx(newFID + int(1).to_bytes(4, 'big') + newFID[:20])
             # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(newFID)[:20]}.[1] /mkchild")
@@ -279,8 +290,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 # dbg(GRA, f"SND {len(wire)} want request to dmx={d} for {h}.[{seq}]")
 
     def request_chain(self, pkt):
-        print("request_chain", pkt.fid.hex()[:8], pkt.seq,
-              pkt.chain_nextptr.hex() if pkt.chain_nextptr else None)
+        print("request_chain", util.hex(pkt.fid)[:8], pkt.seq,
+              util.hex(pkt.chain_nextptr) if pkt.chain_nextptr else None)
         hptr = pkt.chain_nextptr
         if hptr == None: return
         # dbg(GRA, f"+blob @{util.hex(hptr)}")
@@ -292,14 +303,14 @@ class NODE:  # a node in the tinySSB forwarding fabric
             f.enqueue(wire)
             # dbg(GRA, f"SND blob chain request to dmx={d.hex()} for {hptr.hex()}")
 
-    def arq_loop(self): # Automatic Repeat reQuest
+    def arq_loop(self):  # Automatic Repeat reQuest
         # dbg(GRA, f"This is Replication for node {util.hex(self.myFeed.fid)[:20]}")
         # prepare to serve incoming requests for logs I have
         # i.e., sent to me, which means with DMX="myFID want"
         want_dmx = packet._dmx(self.me + b'want')
         # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} / me {util.hex(self.me)[:20]}...")
         self.arm_dmx(want_dmx,
-                     lambda buf, n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {self.me.hex()[:20]}")
+                     lambda buf, n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {util.hex(self.me)[:20]}")
 
         # prepare to serve blob requests
         blob_dmx = packet._dmx(b'blobs')

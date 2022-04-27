@@ -19,6 +19,11 @@ class Keystore():
             self.kv[util.fromhex(pk)] = (util.fromhex(d['sk']), d['name'])
 
     def new(self, nm=None):
+        """
+        Add a new feedID to the keystore without deleting others.
+
+        The new key pair is unrelated to the other IDs.
+        """
         sk, _ = pure25519.create_keypair()
         sk,pk = sk.sk_s[:32], sk.vk_s # just the bytes
         self.add(sk, pk, nm)

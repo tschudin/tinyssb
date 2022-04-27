@@ -30,6 +30,13 @@ def pow3(b, exp, m):
 def inv(x):
     return pow3(x, Q-2, Q)
 
+def mod(num, a):
+    res = num >> (33*8)
+    num = num.to_bytes(64, 'big')
+    for i in range(31,64):
+        res = ((res << 8) | num[i]) % a
+    return res
+
 # d = -121665 * inv(121666)
 # I = pow3(2, (Q-1)//4, Q)
 d = -4513249062541557337682894930092624173785641285191125241628941591882900924598840740
@@ -95,7 +102,7 @@ def add_elements(pt1, pt2): # extended->extended
     X3 = (E*F) % Q
     Y3 = (G*H) % Q
     T3 = (E*H) % Q
-    Z3 = (F*G) % Q
+    Z3 = mod(F*G, Q) # necessary because of bug in PyCOM/ESP32's micropython?
     return (X3, Y3, Z3, T3)
 
 '''

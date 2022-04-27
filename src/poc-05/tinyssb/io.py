@@ -45,6 +45,9 @@ from .dbg import *
 queue_lock = _thread.allocate_lock()
 
 class FACE:
+    """
+    Super class to receive messages.
+    """
 
     def __init__(self):
         self.outqueue = []
@@ -69,6 +72,9 @@ class FACE:
 
 
 class NEIGHBOR:
+    """
+    Super class to send messages.
+    """
 
     def __init__(self, face, sock):
         self.face = face
@@ -215,7 +221,7 @@ class UDP_MULTICAST(FACE):
             self.snd_sock.setsockopt(socket.SOL_IP,
                                      socket.IP_MULTICAST_IF,
                                      bytes(4))
-        self.snd_addr = self.snd_sock.getsockname()
+            self.snd_addr = self.snd_sock.getsockname()
         
         self.rcv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.rcv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -446,7 +452,7 @@ class IOLOOP:
                         if r[0] == fc.rcv_sock or \
                           (type(r[0])==int and type(fc.rcv_sock)!=int and r[0] == fc.rcv_sock.fileno()):
                             pn = fc.recv(250)
-                            if pn: self.on_rx(*pn) # (pkt, neigh)
+                            if pn: self.on_rx(*pn) # (pkt, neigh) see function receive from each FACE
                     if r[1] & select.POLLOUT != 0: # next pkt can be sent
                         if len(fc.outqueue) > 0 and (r[0] == fc.snd_sock or \
                             (type(r[0])==int and type(fc.snd_sock) != int and r[0] == fc.snd_sock.fileno())):

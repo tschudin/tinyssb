@@ -51,9 +51,9 @@ class SlidingWindow:
     def write_typed_48B(self, typ, buf48):
         # check for overlength, start new feed continuation if necessary
         buf48 = buf48 + bytes(48-len(buf48))
-        if len(self.lfd) > 7: # a very small segment size of 8 entries
+        if len(self.lfd) > 7:  # a very small segment size of 8 entries
             oldFID = self.lfd.fid
-            dbg(GRA, f"SESS: ending feed {oldFID.hex()[:20]}..")
+            dbg(GRA, f"SESS: ending feed {util.hex(oldFID)[:20]}..")
             pk = self.node.ks.new('continuation')
             sign2 = lambda msg: self.node.ks.sign(pk, msg)
             seq, prevhash = self.lfd.getfront()
@@ -62,6 +62,7 @@ class SlidingWindow:
             pktdmx = packet._dmx(self.lfd.fid + nextseq + prevhash)
             # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
             self.node.arm_dmx(pktdmx)
+            # FIXME, take dmx once packet has been created!
             pkts = self.node.repo.mk_continuation_log(self.lfd.fid,
                                                       self.lfdsign,
                                                       pk, sign2)
@@ -70,7 +71,7 @@ class SlidingWindow:
             if self.node.sess.pfd == None:
                 self.node.sess.pfd = oldFID
             self.lfdsign = sign2
-            dbg(GRA, f"  ... continued as feed {self.lfd.fid.hex()[:20]}..")
+            dbg(GRA, f"  ... continued as feed {util.hex(self.lfd.fid)[:20]}..")
             self.node.push(pkts, True)
         self.node.write_typed_48B(self.lfd.fid, typ, buf48, self.lfdsign)
 
@@ -100,7 +101,7 @@ class SlidingWindow:
             if self.pfd == None:
                 print("no log to remove")
                 return
-            dbg(GRE, f"SESS: removing feed {self.pfd.hex()[:20]}..")
+            dbg(GRE, f"SESS: removing feed {util.hex(self.pfd)[:20]}..")
             f = self.node.repo.get_log(self.pfd)
             if len(f) > 1 and f[-1].typ[0] == packet.PKTTYPE_contdas:
                 self.pfd = f[-1].payload[:32]
