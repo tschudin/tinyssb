@@ -21,7 +21,6 @@ class SlidingWindowClient:
         pass
 
     def __del__(self):
-        # TODO: self.port?
         self.slw.deregister(port)
         self.slf = None
 
@@ -30,11 +29,11 @@ class SlidingWindowClient:
 
 class SlidingWindow:
 
-    def __init__(self, node, localFID, remoteFID):
-        self.node = node
-        self.lfd = node.repo.get_log(localFID)
-        self.lfdsign = lambda msg: node.ks.sign(localFID, msg)
-        self.rfd = node.repo.get_log(remoteFID)
+    def __init__(self, nd, localFID, remoteFID):
+        self.nd = nd
+        self.lfd = nd.repo.get_log(localFID)
+        self.lfdsign = lambda msg: nd.ks.sign(localFID, msg)
+        self.rfd = nd.repo.get_log(remoteFID)
         self.pfd = None # pending feed (oldest unacked cont feed), test needed
         self.upcall = None # client(s), currently we ignore ports
         self.started = False
@@ -54,26 +53,20 @@ class SlidingWindow:
         if len(self.lfd) > 7:  # a very small segment size of 8 entries
             oldFID = self.lfd.fid
             dbg(GRA, f"SESS: ending feed {util.hex(oldFID)[:20]}..")
-            pk = self.node.ks.new('continuation')
-            sign2 = lambda msg: self.node.ks.sign(pk, msg)
-            seq, prevhash = self.lfd.getfront()
-            seq += 1
-            nextseq = seq.to_bytes(4, 'big')
-            pktdmx = packet._dmx(self.lfd.fid + nextseq + prevhash)
-            # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
-            self.node.arm_dmx(pktdmx)
-            # FIXME, take dmx once packet has been created!
-            pkts = self.node.repo.mk_continuation_log(self.lfd.fid,
-                                                      self.lfdsign,
-                                                      pk, sign2)
-            
-            self.lfd = self.node.repo.get_log(pkts[1].fid)
-            if self.node.sess.pfd == None:
-                self.node.sess.pfd = oldFID
+            pk = self.nd.ks.new('continuation')
+            sign2 = lambda msg: self.nd.ks.sign(pk, msg)
+            pkts = self.nd.repo.mk_continuation_log(self.lfd.fid,
+                                                    self.lfdsign,
+                                                    pk, sign2)
+            # dbg(GRA, f"-dmx pkt@{util.hex(pkts[0].dmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
+            self.nd.arm_dmx(pkts[0].dmx)
+            self.lfd = self.nd.repo.get_log(pkts[1].fid)
+            if self.nd.sess.pfd == None:
+                self.nd.sess.pfd = oldFID
             self.lfdsign = sign2
             dbg(GRA, f"  ... continued as feed {util.hex(self.lfd.fid)[:20]}..")
-            self.node.push(pkts, True)
-        self.node.write_typed_48B(self.lfd.fid, typ, buf48, self.lfdsign)
+            self.nd.push(pkts, True)
+        self.nd.write_typed_48B(self.lfd.fid, typ, buf48, self.lfdsign)
 
     def on_incoming(self, pkt):
         # dbg(BLU, f"SESS: incoming {pkt.fid[:20].hex()}:{pkt.seq} {pkt.typ}")
@@ -85,8 +78,8 @@ class SlidingWindow:
     def _process(self, pkt):
         # print("SESS _processing")
         if pkt.typ == bytes([packet.PKTTYPE_contdas]):
-            self.rfd = self.node.repo.get_log(pkt.payload[:32])
-            self.node.repo.del_log(pkt.fid)
+            self.rfd = self.nd.repo.get_log(pkt.payload[:32])
+            self.nd.repo.del_log(pkt.fid)
             return
         if pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
@@ -102,13 +95,13 @@ class SlidingWindow:
                 print("no log to remove")
                 return
             dbg(GRE, f"SESS: removing feed {util.hex(self.pfd)[:20]}..")
-            f = self.node.repo.get_log(self.pfd)
+            f = self.nd.repo.get_log(self.pfd)
             if len(f) > 1 and f[-1].typ[0] == packet.PKTTYPE_contdas:
                 self.pfd = f[-1].payload[:32]
             else:
                 self.pfd = None
-            self.node.repo.del_log(f.fid)
-            self.node.ks.remove(f.fid)
+            self.nd.repo.del_log(f.fid)
+            self.nd.ks.remove(f.fid)
             del f
             return
         if pkt.typ[0] == packet.PKTTYPE_plain48:

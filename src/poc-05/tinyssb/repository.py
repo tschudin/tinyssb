@@ -30,16 +30,11 @@ from tinyssb.dbg import *
 
 if sys.implementation.name == 'micropython':
     def isfile(fn):
-        try:
-            return os.stat(fn)[0] & 0x8000 != 0
-        except:
-            return False
-
-    def isdir(directory_name):
-        try:
-            return os.stat(directory_name)[0] & 0x4000 != 0
-        except:
-            return False
+        try:    return os.stat(fn)[0] & 0x8000 != 0
+        except: return False
+    def isdir(dn):
+        try:    return os.stat(fn)[0] & 0x4000 != 0  # FIXME dn instead of fn?
+        except: return False
 else:
     isfile = os.path.isfile
     isdir  = os.path.isdir

@@ -7,18 +7,20 @@
 import hashlib
 import _thread
 
-from . import util, io, packet
+from . import io, packet, repository, util
 from .dbg import *
+
 
 class NODE:  # a node in the tinySSB forwarding fabric
 
     def __init__(self, faces, keystore, repo, me, peerlst):
         self.faces = faces
         self.ks = keystore
-        self.repo = repo
-        self.dmxt = {}  # DMX  ~ dmx_tuple  DMX filter bank
-        self.blbt = {}  # hptr ~ blob_obj  blob filter bank
-        self.users = {}  # fid  ~ user_obj  the users I serve (soc graph)
+        self.repo  = repo
+        self.dmxt  = {}    # DMX  ~ dmx_tuple  DMX filter bank
+        self.blbt  = {}    # hptr ~ blob_obj  blob filter bank
+        self.users = {}    # fid  ~ user_obj  the users I serve (soc graph)
+        # self.peers = {}    # fid  ~ peer_obj  other nodes
         self.timers = []
         self.comm = {}
         #
@@ -117,14 +119,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
         """
         feed = self.repo.get_log(fid)
         self.ndlock.acquire()
-        seq, prevhash = feed.getfront()
-        seq += 1
-        nextseq = seq.to_bytes(4, 'big')
-        pktdmx = packet._dmx(fid + nextseq + prevhash)
-        # dbg(GRA, f"-dmx pkt@{util.hex(pktdmx)} for {util.hex(fid)[:20]}.[{seq}]")
-        self.arm_dmx(pktdmx)  # add following packet to the list of expected packet
         pkt = feed.write_typed_48B(typ, buf48, sign)
-        ## FIXME: take dmx value from there
+        self.arm_dmx(pkt.dmx) # remove potential old demux handler
         self.ndlock.release()
         for f in self.faces:
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")

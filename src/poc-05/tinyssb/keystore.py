@@ -3,6 +3,7 @@
 # tinyssb/keystore.py
 # 2022-04-09 <christian.tschudin@unibas.ch>
 
+import bipf
 from collections import OrderedDict
 import pure25519
 import sys
@@ -16,7 +17,19 @@ class Keystore():
     def __init__(self, cfg={}):
         self.kv = OrderedDict()
         for pk,d in cfg.items():
-            self.kv[util.fromhex(pk)] = (util.fromhex(d['sk']), d['name'])
+            self.kv[util.fromhex(pk)] = [util.fromhex(d['sk']), d['name']]
+
+    def dump(self, fn):
+        # write DB to BIPF file
+        data = bipf.dumps(dict(self.kv))
+        with open(fn, 'wb') as f:
+            f.write(data)
+
+    def load(self, fn):
+        # read DB from BIPF file
+        with open(fn, 'rb') as f:
+            data = f.read()
+        self.kv = bipf.loads(data)
 
     def new(self, nm=None):
         """
@@ -26,11 +39,11 @@ class Keystore():
         """
         sk, _ = pure25519.create_keypair()
         sk,pk = sk.sk_s[:32], sk.vk_s # just the bytes
-        self.add(sk, pk, nm)
+        self.add(pk, sk, nm)
         return pk
 
-    def add(self, sk, pk, nm):
-        self.kv[pk] = (sk,nm)
+    def add(self, pk, sk=None, nm=None):
+        self.kv[pk] = [sk,nm]
 
     def remove(self, pk):
         del self.kv[pk]
