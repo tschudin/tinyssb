@@ -111,6 +111,11 @@ class REPO:
         assert len(payload) == 48
         p = self.get_log(parentFID)
         pkt = p.write_typed_48B(packet.PKTTYPE_mkchild, payload, parentSign)
+        # FIXME specification says that last 12 bytes of 'PKTTYPE_ischild'
+        #  (and of 'PKTTYPE_iscontn') = hash(fid[seq]) (fid and seq from
+        #  referenced packet from other feed), but here we use the last
+        #  12B of the (64B) signature. switching "pkt.wire" by "pkt.payload"
+        #  is not safe though, as last 16B are (currently) zeros
         buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
         newFeed = self.mk_generic_log(childFID, packet.PKTTYPE_ischild,
                                       buf48, childSign, pkt.fid, pkt.seq)

@@ -79,12 +79,19 @@ class SlidingWindow:
         # print("SESS _processing")
         if pkt.typ == bytes([packet.PKTTYPE_contdas]):
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
-            self.nd.repo.del_log(pkt.fid)
+            # self.nd.repo.del_log(pkt.fid)
             return
         if pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
             # should verify proof
             oldFID = pkt.payload[:32]
+            oldFeed = self.nd.repo.get_log(oldFID)
+            if not oldFeed.getfront[0] == pkt.payload[32:36]:
+                dbg(RED, f"Continue feed: sequence number doesn't match:"
+                         f" {oldFeed.getfront[0]} vs {pkt.payload[32:36]}")
+                return
+            # FIXME one could check the hash too, but it is now computed on
+            #  the last bytes of the signature which is not stored
             msg = oldFID # + ??
             self.write_typed_48B(packet.PKTTYPE_acknldg,
                                  msg + bytes(48-len(msg)))
@@ -115,6 +122,7 @@ class SlidingWindow:
     def start(self):
         # does upcalls for all content received so far,
         # including acknowledging (and indirectly free) segments
+        # FIXME: what about child logs?
         i = 1
         while i <= len(self.rfd):
             pkt = self.rfd[i]
