@@ -1,38 +1,44 @@
 # Low-Level Secure Scuttlebutt Packet Spec
 
-_draft 2022-04-26_
-Missing: 
-- More details in the abstract 
-- Tree structure and packet types 2-6 
-- End of file
+_draft 2022-05-02_
+Missing:
 
+- Packet types 6
+- End of file
 
 ## Abstract
 
-TODO More, use case, goal, less specific
+In classic Secure Scuttlebutt, a log entry is self-describing in the sense that
+it contains all relevant fields in order to verify the entry's signature.
+Together with some "trust anchor state", a consumer can assert the integrity,
+authenticity and trustworthiness of a log entry, if the previous log entry was
+already trusted. Based on the observation that trustworthiness of a new entry
+anyway depends on the trustworthiness of past entries as well as other external
+state, TinySSB only includes in the wire format the bits that _cannot_ be
+procured from such context. Doing so greatly reduces the number of bits that
+need to be sent.
 
-This document describes the different packet layout of TinySSB. Each of them
-SHOULD be accepted and understood by any implementation.
+Tinyssb aims to provide an SSB-like protocol adapted for very limited devices by
+sending and storing the least amount of data possible. In addition to the
+reduction of the required number of bits exchanged, we introduce support for
+multiple feeds organised in a tree structure that allows for an easy management
+of the data as well as an interface to mutually forget data that is not needed
+anymore.
+
+TODO More, use case, goal, less specific
 
 ## Introduction
 
-In classic Secure Scuttlebutt, a log entry is self-describing in the sense that
-it contains all relevant bit fields like ```feedID``` (ed25519 public key), the
-entry's sequence number and the hash value of the previous log entry, in order
-to verify the entry's signature. Together with some "trust anchor state" (feedID
-and hash of first log entry), a consumer can assert the integrity, authenticity
-and trustworthiness of a log entry, if the previous log entry was already
-trusted.
-
-Based on the observation that trustworthiness of a new entry anyway depends on
-the trustworthiness of past entries as well as other external state, TinySSB
-only includes in the wire format the bits that _cannot_ be procured from such
-context. The feedID, for example, is implicit through the signature: a consumer
-can validate the signature by trying out all trusted public keys (because a key
-that is not part of the trust anchor cannot lead to trustworthiness by
-definition). Similarly, the sequence number is very much predictable: either it
-is immediately following the highest trusted number we know about, or the
-potential entry has to be dropped anyway.
+In contrast with classical SSB, tinyssb makes use of the data stored for
+previous entries to minimise the data sent. For example, we do not send the feed
+identification (ed25519 public key), the entry's sequence number and the hash
+value of the previous log entry. Indeed, those can be deduced from the received
+data: the feedID is implicit through the signature: a consumer can validate the
+signature by trying out all trusted public keys (because a key that is not part
+of the trust anchor cannot lead to trustworthiness by definition). Similarly,
+the sequence number is very much predictable: either it is immediately following
+the highest trusted number we know about, or the potential entry has to be
+dropped anyway.
 
 _Not_ sending a field does not mean that it has no relevance. When computing the
 signature, for example, these fields must be part of the "virtual log entry"
@@ -46,7 +52,6 @@ As an example, we describe here the virtual field of a log entry, as well as the
 fields that appear "on the wire".
 
 ```
-
                      context state (exists at producer  |    a) trust anchors
                              as well as consumer side)  |    b) per feed 'head':
                                                         |      - prefix (version)
@@ -69,8 +74,6 @@ manifested part of log entry           |    algo + type    |
 
 
                Figure 1: virtual vs manifested parts of a log entry
-
-
 ```
 
 This process not only spare some bandwidth by sending fewer bytes, but also
@@ -240,9 +243,9 @@ We will describe its use in more detail in the section about Log packets of Type
 
 ## Log Packet Types
 
-Specified in the field "TYP", a log entry can have a special format for the
-PAYLOAD field. We will describe the 7 types that are described as of this
-version of TinySSB
+A log entry has a 48 Bytes payload, which content must comply to the
+specification of its type (given by the field "TYP"). We will describe the 7
+types that are described as of this version of TinySSB.
 
 ### Type 0: Plain Text
 
@@ -309,13 +312,75 @@ Note that Type-0 log entries have a fixed-length 48B payload while Type-1 log
 entries can have any length, even from 0 to 48 bytes. When the length is less
 than 28, the ```HPTR1``` field consists of zeros as no blobs are necessary.
 
-
 ## Tree structure for the feeds
-### Type 2: Is Child
-### Type 3: Is Continue
-### Type 4: Make Child
-### Type 5: Continued as
-### Type 2: Acknowledgement
+
+The five following packet types concern the creation and management of
+sub-feeds. We describe the nuts and bolts before specifying their different
+fields.
+
+### Rationale of sub-feeds
+
+We specify for tinySSB a way to express tree-shaped feed dependencies: a feed
+can have one or more children feeds and can end with an optional continuation
+feed. The parent-child relationship naturally forms a tree, extending it
+vertically. Horizontally, a continuation feed extends a node such that the tree
+shape is kept intact.
+
+We require that a child node, as well as a continuation node, specify their
+predecessor node which is found either horizontally (if a continuation), or
+vertically (if a child node). The root node has no predecessor, i.e. the
+respective predecessor feed ID is set to 0.
+
+As a result, it is always possible to find the root node of the tree when
+starting from an arbitrary feed X like this:
+
+find_root(x):
+  while x.predecessor != 0:
+    x = x.predecessor
+  return x
+
+This is useful, for example, if trust claims are linked to the root node and
+these trust claims should also apply to all dependent nodes.
+
+The predecessor relationship is cryptographically protected such that no loops
+can form: each dependent feed must provide a "birth-certificate" as a proof of
+its status, in its genesis block. This certificate is simply a hash value of the
+log entry's wire format that announces the new dependent feed.
+
+### Create a sub-feed
+
+One can declare a new feed by using an entry with type 4 for a child (vertical)
+feed or type 5 for a continued (horizontal) feed. The same format is used (only
+the field TYP is different):
+
+```
+- NFID   :  32 Bytes   ID of the new feed (child or continuation)
+- ____   :  16 Bytes   Not defined (any: timestamp, etc)
+```
+
+This can happen at any time in a feed, but the entry must be the last one in
+case of a continued feed.
+
+The new feed can now be created, which first entry must be of type 2 (for a
+child feed) or 3. Again, only the `TYP` field can distinguish them.
+
+```
+- PFID   :  32 Bytes   ID of the predecessor feed
+- PSEQ   :   4 Bytes   sequence number of the last log of predecessor feed  
+- HASH   :  12 Bytes   hash(PFID[PSEQ])
+```
+
+Note that the fields PFID and PSEQ refer to the feed entry of the
+parent/predecessor feed, thus do not match the FID and SEQ fields.
+
+TODO: type 6, explain hash better?
+
+### Type 6: Acknowledgement
+
+```
+- OLDFID  :  32 Bytes   id of the feed whose action is acknowledged  
+- PADD    :  16 Bytes   padding
+```
 
 ## D) Filtering Received Packets via "Expectation Tables"
 
