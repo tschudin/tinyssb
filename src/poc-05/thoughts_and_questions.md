@@ -45,6 +45,10 @@ I want to keep track of.
 7. There's nothing in the documentation on the format of the packets as stored
    in the disk (as specified in REPO::allocate_log() and LOG::). Should I add
    it?
+8. In `btc_var_int(i)` and `btc_var_int_decode(buf)`, length are bounded (total
+   length must fit within 3 bytes), but a blob could theoretically be
+   arbitrarily long. Shouldn't we use the version from bipf-python 
+   `varint_decode()` and `varint_encode()` that use a loop?
 
 ## Former Problems (not relevant anymore):
 
