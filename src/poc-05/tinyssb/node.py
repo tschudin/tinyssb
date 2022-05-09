@@ -234,6 +234,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
             self.request_latest(repo, newFeed, "<<~")
         elif pkt.typ[0] == packet.PKTTYPE_chain20:  # prepare for first blob in chain:
             h = util.hex(feed.fid)[:20]
+            # FIXME where is the node ('nd') defined? It throws errors
             pkt.undo_chain(lambda h: nd.repo.get_blob(h))
             self.request_chain(pkt)
         # elif pkt.typ[0] == packet.PKTTYPE_iscontn:

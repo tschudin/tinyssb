@@ -1,3 +1,5 @@
+#include <dummy.h>
+
 /*
   tinySSB LoRa-to-WiFiUDP/BT/USB bridge
 
@@ -13,14 +15,11 @@
 */
 
 // config:
-#define AP_SSID   "bridge"
+#define AP_SSID   "tinyssb-bridge2"
 #define AP_PW     "tiny-ssb"
 #define UDP_PORT   5001
 
-// Must match IDE setting
-// #define BAUD_RATE 921600
-
-#define BTname    "tinyssb-bridge"
+#define BTname    "tinyssb-bridge2"
 
 #define LORA_FREQ  867500000L
 // #define LORA_FREQ  868000000L
@@ -76,11 +75,15 @@ void kiss_write(Stream &s, unsigned char *buf, short len) {
 int kiss_read(Stream &s, struct kiss_buf *kp) {
   while (s.available()) {
     short c = s.read();
+    if (c == 10) {  // little hack to use arduino IDE monitor for input
+      c = KISS_FEND;
+    }
+    Serial.printf("KISS packet2, %d read\n", c);
     if (c == KISS_FEND) {
       kp->esc = 0;
       short sz = 0;
       if (kp->len != 0) {
-        // Serial.printf("KISS packet, %d bytes\n", kp->len);
+        Serial.printf("KISS packet, %d bytes\n", kp->len);
         sz = kp->len;
         kp->len = 0;
       }
@@ -152,6 +155,7 @@ void send_bt(unsigned char *buf, short len) {
 }
 
 void send_serial(unsigned char *buf, short len) {
+  Serial.print("Sent serial");
   kiss_write(Serial, buf, len);
 }
 
@@ -190,12 +194,12 @@ void setup() {
   delay(2000);
   //Serial.print("Heltec done\n");
 
-//  BT.begin(BTname);
-//  BT.setPin("0000");
-//  BT.write(KISS_FEND);
+  BT.begin(BTname);
+  BT.setPin("0000");
+  BT.write(KISS_FEND);
   //Serial.print("BT done\n");
 
-//  WiFi.disconnect(true);
+  WiFi.disconnect(true);
   delay(500);
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PW, 7, 0, 2); // limit to two clients, only one will be served
@@ -245,6 +249,12 @@ void loop() {
     LoRa.readBytes(pkt_buf, pkt_len);
     rssi = LoRa.packetRssi();
 
+    Serial.print("LoRa received:");
+    for(int i=0; i<5; i++) {
+        Serial.printf("%d ", pkt_buf[i]);
+    }
+    Serial.print("\n");
+        
     send_udp(pkt_buf, pkt_len);  // order?
     send_bt(pkt_buf, pkt_len);
     send_serial(bt_kiss.buf, pkt_len);
@@ -254,7 +264,12 @@ void loop() {
   if (pkt_len > 0) {
     change = 1;
     serial_cnt += 1;
-
+    Serial.print("Serial received:");
+    for(int i=0; i<5; i++) {
+        Serial.printf("%d ", serial_kiss.buf[i]);
+    }
+    Serial.print("\n");
+    
     send_lora(serial_kiss.buf, pkt_len);  // order?
     send_udp(serial_kiss.buf, pkt_len);
     send_bt(serial_kiss.buf, pkt_len);
@@ -265,6 +280,12 @@ void loop() {
     change = 1;
     bt_cnt += 1;
 
+    Serial.print("BTreceived:");
+    for(int i=0; i<5; i++) {
+        Serial.printf("%d ", bt_kiss.buf[i]);
+    }
+    Serial.print("\n");
+    
     send_lora(bt_kiss.buf, pkt_len);   // order?
     send_udp(bt_kiss.buf, pkt_len);
     send_serial(bt_kiss.buf, pkt_len);

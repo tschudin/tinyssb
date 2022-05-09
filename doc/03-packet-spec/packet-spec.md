@@ -17,7 +17,7 @@ _draft 2022-03-23_
 
 <------------------- 128B ------------------->
 
-  8B                120B
+  8B                120B ("wire bytes")
 +-----+-------------------..-----------------+
 | RND | cloaked packet content               | frame
 +-----+-------------------..-----------------+
@@ -121,19 +121,32 @@ how the various fields are computed.
 
 ## Log Entry -- Computing the (virtual) 64 Bytes _Name of a Log Entry_
 
-_virtual_ means that a value is only used internally i.e., it
-is not transmitted as actual bytes on the wire.
+_virtual_ means that a value is only used internally i.e., it is not transmitted
+as actual bytes on the wire. We distinguish it from the _on the wire_ entry log,
+the packet sent. We introduce here the format of each of them:
+
+```
+Virtual entry = PFX + FID + SEQ + PREV + DMX + TYP + PAYL + SIG
+
+Wire entry    = DMX + TYP + PAYL + SIG
+              =  7B +  1B +  48B + 64B = 120B
+```
+
+We will now describe each field.
 
 ```
 LOG_ENTRY_NAME = PFX + FID + SEQ + PREV
 
-  where PFX   = 8B   'llssb-v0', for versioning packet formats
+  where PFX   = 10B  'tinyssb-v0', for versioning packet formats
         FID   = 32B  ed25519 public key (feed ID)
         SEQ   = 4B   sequence number in big endian format
         PREV  = 20B  message ID (MID) of preceding log entry
 
         The PREV field is all-zeros for the log's genesis block (seq=0)
 ```
+
+Note: the length of the prefix (PFX) field is not relevant, as it is not
+physically sent, only hashed (see below)
 
 ## Log Entry -- Computing the 7 Bytes _Demultiplexing Field_
 
@@ -144,24 +157,24 @@ DMX = sha256(LOG_ENTRY_NAME)[:7]
 ## Log Entry -- Computing the (virtual) 120 Bytes _Expanded Log Entry_
 
 ```
-EXPANDED_LOG_ENTRY = LOG_ENTRY_NAME + DMX + T + PAYL
-                   = PFX + FID + SEQ + PREV + DMX + T + PAYL
+EXPANDED_LOG_ENTRY = LOG_ENTRY_NAME + DMX + TYP + PAYL
+                   = PFX + FID + SEQ + PREV + DMX + TYP + PAYL
 
-  where T     = 1B   signature algorithm and packet type
+  where TYP   = 1B   signature algorithm and packet type
         PAYL  = 48B  payload
 ```
 
 ## Log Entry -- Computing the 64 Bytes _Signature_
 
 ```
-SIG = ed25519_signature(secretkey, EXPANDED_LOG_ENTRY)
+SIG = sign(secretkey, EXPANDED_LOG_ENTRY)
 ```
 
 ## Log Entry -- Computing the (virtual) 184 Bytes _Full Log Entry_
 
 ```
 FULL_LOG_ENTRY = EXPANDED_LOG_ENTRY + SIG
-               = PFX + FID + SEQ + PREV + DMX + T + PAYL + SIG
+               = PFX + FID + SEQ + PREV + DMX + TYP + PAYL + SIG
 
   where SIG   = 64B  signature
 ```
@@ -173,16 +186,14 @@ MID = sha256(FULL_LOG_ENTRY)[:20]
 
 ```
 
-The MessageID of a log entry is referenced in the subsequent log entry
-as PREV field (that is never transmitted).
-
+The MessageID of a log entry is referenced in the subsequent log entry as PREV
+field (that is never transmitted).
 
 ## Log Entry -- Computing its 120 Bytes \textcolor{red}{\em Wire Format}
 
 ```
-PACKET = DMX + T + PAYL + SIG
+PACKET = DMX + TYP + PAYL + SIG
 ```
-
 
 ## Blob -- Computing its 20 Bytes _Hash Pointer_
 
@@ -197,11 +208,10 @@ PTR = sha256(BLOB)[:20]
 ## C) Type 1 -- Content Stored in a Side Hashchain
 
 If more than the fixed-size 48B payload should be added to the log
-(type-0), a sidechain can be used (type-1). The payload field serves
-to encode (a) the total length of content, (b) some bytes of the
-content, plus (c) a hash pointer to the first data blob. Inside each
-blob, 100B are for content and 20B are for a continuation pointer,
-linking to the next blob.
+(type-0), a sidechain can be used (type-1). The payload field serves to encode (
+a) the total length of content, (b) some bytes of the content, plus (c) a hash
+pointer to the first data blob. Inside each blob, 100B are for content and 20B
+are for a continuation pointer, linking to the next blob.
 
 ```
 
@@ -209,7 +219,7 @@ linking to the next blob.
   
           <------48B payload----->
   +----+-+------------------------+- . . . ---+
-  | OHT|T| len | content1 | hptr1 | signature |   log entry
+  | DMX|T| len | content1 | hptr1 | signature |   log entry
   +----+-+-----+----------+-------+- . . . ---+
                               |
      -------------------------' start of side chain (hash of blob 1)
@@ -232,43 +242,39 @@ linking to the next blob.
                          with content of arbitrary length
 ```
 
-When forming the chain, the last blob has to be created first, from
-which the last pointer value can be derived which goes into the
-second-last blob etc. The total content length (field ```len```) is
-encoded in Bitcoin's varInt format and its length must be considered
-when filling the last packet.
+When forming the chain, the last blob has to be created first, from which the
+last pointer value can be derived which goes into the second-last blob etc. The
+total content length (field ```len```) is encoded in Bitcoin's varInt format and
+its length must be considered when filling the last packet.
 
-Note that Type-0 log entries have a fixed-length 48B payload while
-Type-1 log entries can have any length, even from 0 to 48 bytes.
-When the length is less than 28, the ```hptr1``` field consists
-of zeros as no blobs are necessary.
-
+Note that Type-0 log entries have a fixed-length 48B payload while Type-1 log
+entries can have any length, even from 0 to 48 bytes. When the length is less
+than 28, the ```hptr1``` field consists of zeros as no blobs are necessary.
 
 ## D) Filtering Received Packets via "Expectation Tables"
 
-A node has precise knowledge about what packets are acceptable, given
-its current state. The DMX field was introduced for letting packets
-declare their profile and letting nodes filter on these announcement
-(before performing the computationally expensive verification of the
-signature). A second, independent filter is based on a requested
-packet's hash value. A node therefore maintains two "expectation
-tables", DEMUX_TBL and CHAIN_TBL.
+A node has precise knowledge about what packets are acceptable, given its
+current state. The DMX field was introduced for letting packets declare their
+profile and letting nodes filter on these announcements
+(before performing the computationally expensive verification of the signature).
+A second, independent filter is based on a requested packet's hash value. A node
+therefore maintains two "expectation tables", DEMUX_TBL and CHAIN_TBL.
 
-The DEMUX_TBL table is populated by ```(DMX,feedID)``` tuples for each
-feed that a node subscribed for: the node can exactly predict which
-```feedID```, ```SeqNo``` and ```prevMsgID``` a packet must have in
-order to be a valid extension of the local log replica. As soon as a
-valid entry was received, the old DMX value can be removed from the
-DEMUX_TBL and is replaced by the next one, based on the updated
-feed. Note that a publisher can stream log entries back-to-back while
-the consumer simply rotates the corresponding DMX entry.
+The DEMUX_TBL table is populated by ```(DMX,feedID)``` tuples for each feed that
+a node subscribed for: the node can exactly predict which
+```feedID```, ```SeqNo``` and ```prevMsgID``` a packet must have in order to be
+a valid extension of the local log replica. As soon as a valid entry was
+received, the old DMX value can be removed from the DEMUX_TBL and is replaced by
+the next one, based on the updated feed. Note that a publisher can stream log
+entries back-to-back while the consumer simply rotates the corresponding DMX
+entry.
 
-Similarily, if a log entry contains a sidechain and the subscription
-asked for replication WITH its sidechains, the node can add an
-expected hash pointer value to the CHAIN_TBL table (which is the first
-hash pointer of this chain, found in the payload of the received log
-entry). When the first blob is received, the node can replace this
-expectation with the next hash pointer found in the received blob, etc
+Similarily, if a log entry contains a sidechain and the subscription asked for
+replication WITH its sidechains, the node can add an expected hash pointer value
+to the CHAIN_TBL table (which is the first hash pointer of this chain, found in
+the payload of the received log entry). When the first blob is received, the
+node can replace this expectation with the next hash pointer found in the
+received blob, etc
 
 Overall, the pseudo code for packet reception looks like this:
 
@@ -295,5 +301,203 @@ on_receive(frame f):
   
 ```
 
-\vskip 1em
-\hrule
+\vskip 1em \hrule
+
+
+
+## Repository end comment
+
+A) Internal structure of an append-only log file:
+
+  How 'anchor' and 'front' metadata relate to an append-only log:
+
+                  v-- first log entry in file (seq=N)
+   -  -  -  -  +-----------+-----------+-----------+-----------+
+   log         |R+D+T+P+SIG|R+D+T+P+SIG|R+D+T+P+SIG|R+D+T+P+SIG| --> future
+   -  -  -  -  +-----------+-----------+-----------+-----------+
+          ^                   last log entry in file --^   ^
+          |                                                |
+          | anchorSEQ (N-1)                       frontSEQ |
+          | anchorMID                             frontMID |
+
+
+  The log file is a sequence of 128 byte blocks, the first is a header block
+
+    128B header block
+    128B log entry N
+    128B log entry N+1
+         ..
+
+
+  The header block persists critical metadata for the log:
+  - reserved   (12B)
+  - feed ID    (32B, ed25519 public key)
+  - parent ID  (32B, if this log is a subfeed)
+  - parent SEQ ( 4B, seqNr where the parent feed declared this subfeed)
+  - anchor SEQ ( 4B, seqNr, assumed to be trusted, can be >0 for truncated feed
+  - anchor MID (20B, msgID, assumed to be trusted, of above anchorSEQ entry
+  - front SEQ  ( 4B, seq number of last record in the file)
+  - front MID  (20B, msgID of last record in the file)
+
+ 
+  Log entries, following the header block, occupy also 128 bytes:
+  - reserved   (  8B, could be RND or other mgmt information)
+  - packet     (120B, DMX+T+PAYLOAD+SIGNATURE)
+  Once a log entry is in the file, it is declared trusted
+  (because we verify each packet before appending it)
+
+
+B) Blobs:
+
+  - any         (128B)
+  - stored in a separate directory
+
+
+C) Sidenote, unrelated to this repository code:
+
+   One can use a log entry with a sidechain to tunnel packets of
+   other feeds i.e., wrapping a feed inside another feed, or to
+   tunnel a mix (of log entries from several feeds) inside a single feed.
+
+   Given a (inner) packet X of length 128B (data), create two (outer) packets:
+
+   i) log entry   D+T+P+SIG, where T is chain20
+                                   P is 28B (data from X) + 20B (hptr)
+
+   ii) blob       100B (data from X) + 20B (null-ptr)
+
+## Packet end comment
+
+
+tinySSB Data Format of 48B Log Entries for "Metafeed Information"
+-----------------------------------------------------------------
+
+1) A tree hierarchy for dependend feeds
+
+We specify for tinySSB a way to express tree-shaped feed dependencies:
+a feed can have one or more children feeds and can end with an
+optional continuation feed. The parent-child relationship naturally
+forms a tree, extending it vertically. Horizontally, a continuation
+feed extends a node such that the tree shape is kept intact.  The
+following figure shows these two extension possibilities (we attach
+classification-style names to nodes just for readability purposes):
+
+                 root-feed (.)
+               /      |          \
+ sub-feed (.1)   sub-feed (.2)     ....
+       |            ...    \
+ subsub-feed (.1.1)     subsub-feed (.2.5) -> subsub-feed (.2.5') -> ...
+                               |                    /    \
+                           .2.5.1          .2.5'.1      .2.5'.2
+
+We requires that a child node, as well as a continuation node, specify
+their predecessor node which is found either horizontally (if a
+continuation), or vertically (if a child node). The root node has no
+predecessor, i.e. the respective predecessor feed ID is set to 0.
+
+As a result, it is always possible to find the root node of the tree
+when starting from an arbitrary feed X like this:
+
+find_root(x):
+  while x.predecessor != 0:
+    x = x.predecessor
+  return x
+
+This is useful, for example, if trust claims are linked to the root node
+and these trust claims should also apply to all dependent nodes.
+
+The predecessor relationship is cryptographically protected such that
+no loops can form: each dependent feed must provide a
+"birth-certificate" as a proof of its status, in its genesis
+block. This certificate is simply a hash value of the log entry's wire
+format that announces the new dependent feed. The steps to create a
+dependent feed are one of:
+
+mk_child_feed(n):
+  s = alloc_keypair()
+  logentry = n.append(PKTTYPE_mkchild, s.pk, signed_with=n.sk)
+  s.create_feed(PKTTYPE_ischild, pred=(logentry.fid/.seq),
+                proof=hash(logentry), signed_with=s.sk)
+  return s
+
+mk_continuation_feed(n):
+  s = alloc_keypair()
+  finallogentry = n.append(PKTTYPE_contdas, s.pk, signed_with=n.sk)
+  s.create_feed(PKTTYPE_iscontn, pred=(finallogentry.fid/.seq),
+                proof=hash(finallogentry), signed_with=s.sk)
+  return s
+
+To end a feed, a continuation entry is created for a dependend feed=0:
+
+mk_end_of_feed(n):
+  finallogentry = n.append(PKTTYPE_contdas, 0, signed_with=n.sk)
+
+
+2) Encoding
+
+The format of the 48B payload containing metafeed information,
+depending on the value in the packet's type field, is specified as
+follows:
+
+PKTTYPE_ischild: (always has sequence number 1)
+  32B predecessor fid   # vertical (parent)
+   4B predecessor seq
+  12B hash(fid[seq])
+
+PKTTYPE_iscontn: (always has sequence number 1)
+  32B predecessor fid   # horizontal
+   4B prececessor seq
+  12B hash(fid[seq])
+
+PKTTYPE_mkchild: (at arbitray position in the parent log)
+  32B child fid
+  16B any (timestamp, etc) 
+
+PKTTYPE_contdas:  (at the last position of the predecessor log)
+  32B continuation fid
+  16B any (timestamp, etc)  # 0s in code
+
+
+3) Discussion
+
+(see also and compare with SSB's metafeed spec at
+https://github.com/ssb-ngi-pointer/ssb-meta-feeds-spec)
+
+The four packet types above form a minimal layer for expressing
+dependency in a way that enforces a tree shape. One can design a
+second layer of dependency, but without such guarantee, at
+application layer that uses ordinary plain48 or chain20 messages. In
+such 2nd layer dependency messages, things could be expressed like:
+
+- mount      (called "metafeed/add/existing" in the SSB metafeed spec)
+- unmount    (called "metafeed/tombstone" in the SSB metafeed spec)
+- mounted    (called "metafeed/announce" in the SSB metafeed spec)
+
+The verb mount is inherited from the UNIX vocabulary as it relates to
+extending tree-shaped file systems. One could also have used the UNIX
+concept of symbolic links (symlink(), unlink(), S_ISLINK()) for this
+discussion with the characteristics that such higher-level tree
+constructions can't prevent loop formation (which we do not want for
+our low-level tree of feeds). Note that the SSB spec does not discuss
+the problematic case where one metafeed would "add/existing" another
+metafeed.
+
+SSB's "metafeed/add/derived" action is, tree-wise, already covered by
+our low-level mkchild action where the parent feed includes the child
+feed's ID. At the same time, the genesis block of the child feed links
+back to the respective PKTTYPE_mkchild log entry and proves this
+reference by including a hash of it. This replaces both the two-fold
+signing (necessary for "add/existing" in SSB's metafeed spec) and the
+deterministic seed generation of a child's (which can be seen as
+another proof of belonging to some parent feed).
+
+There remains the question whether the child's (or continuation's)
+keypair MUST be derived from the predecessor feed, instead of being
+created from a random seed.  We chose to use a random seed in order to
+be able to drop a dependend feed's secret key for forward secrecy
+reasons. With the same intent we also prefer to not specify a special
+private message to oneself for storing the secret key of (any)
+dependend or top-level feed inside a feed, while the SSB spec uses a
+"metafeed/seed" log entry in the main feed. If applications choose to
+nevertheless have this feature (e.g. to use a log as a backup for
+private keys), they can still implement it by themselves.
