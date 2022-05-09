@@ -126,6 +126,18 @@ class NODE:  # a node in the tinySSB forwarding fabric
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")
             f.enqueue(pkt.wire)
 
+    def write_blob_chain(self, fid, buf, sign):
+        feed = self.repo.get_log(fid)
+        self.ndlock.acquire()
+        pkt, blobs = feed.prepare_chain(buf, sign)
+        buffer = self.repo.persist_chain(pkt, blobs)[:1]
+        self.ndlock.release()
+
+        for f in self.faces:
+            for p in buffer:
+                dbg(BLU, f"f={f}, pkt={p[:3]}")
+                f.enqueue(p)
+
     # ----------------------------------------------------------------------
 
     def incoming_want_request(self, demx, buf, neigh):

@@ -37,6 +37,7 @@ class SlidingWindow:
         self.pfd = None # pending feed (oldest unacked cont feed), test needed
         self.upcall = None # client(s), currently we ignore ports
         self.started = False
+        self.window_length = 7
 
     def register(self, port, client):
         self.upcall = lambda buf: client.upcall(buf)
@@ -50,7 +51,7 @@ class SlidingWindow:
     def write_typed_48B(self, typ, buf48):
         # check for overlength, start new feed continuation if necessary
         buf48 = buf48 + bytes(48-len(buf48))
-        if len(self.lfd) > 7:  # a very small segment size of 8 entries
+        if len(self.lfd) > self.window_length:  # a very small segment size of 8 entries
             oldFID = self.lfd.fid
             dbg(GRA, f"SESS: ending feed {util.hex(oldFID)[:20]}..")
             pk = self.nd.ks.new('continuation')
@@ -68,6 +69,9 @@ class SlidingWindow:
             self.nd.push(pkts, True)
         self.nd.write_typed_48B(self.lfd.fid, typ, buf48, self.lfdsign)
 
+    def write_blob_chain(self, buf):
+        self.nd.write_blob_chain(self.lfd.fid, buf, self.lfdsign)
+
     def on_incoming(self, pkt):
         # dbg(BLU, f"SESS: incoming {pkt.fid[:20].hex()}:{pkt.seq} {pkt.typ}")
         if self.started:
@@ -77,7 +81,7 @@ class SlidingWindow:
 
     def _process(self, pkt):
         # print("SESS _processing")
-        if pkt.typ == bytes([packet.PKTTYPE_contdas]):
+        if pkt.typ[0] == [packet.PKTTYPE_contdas]:
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
             # self.nd.repo.del_log(pkt.fid)
             return
@@ -119,7 +123,7 @@ class SlidingWindow:
     def set_upcall(self, upcall):
         self.upcall = upcall
 
-    def start(self):
+    def start(self, callback=None):
         # does upcalls for all content received so far,
         # including acknowledging (and indirectly free) segments
         # FIXME: what about child logs?
@@ -131,7 +135,9 @@ class SlidingWindow:
                 i = 1 # restart loop for continuation segment
             else:
                 i += 1
-        self.rfd.set_append_cb(self.on_incoming)
+        if callback is None:
+            callback = self.on_incoming
+        self.rfd.set_append_cb(callback)
         dbg(RED, "sess has started (catchup done, switching to live processing)")
         self.started = True
 

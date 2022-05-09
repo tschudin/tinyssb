@@ -117,10 +117,6 @@ class PACKET:
     def mk_typed_entry(self, typ, payload, signFct):
         """
         Pads the payload and compute the signature
-        :param typ:
-        :param payload:
-        :param signFct:
-        :return:
         """
         if len(payload) < 48:
             payload += b'\x00' * (48 - len(payload))
