@@ -180,7 +180,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
             cnt = int.from_bytes(buf[20:22], 'big')
             try:
                 while cnt > 0:
-                    blob = self.repo.get_blob(hptr)
+                    blob = self.repo.fetch_blob(hptr)
                     if not blob:
                         break
                     # dbg(GRA, f'    blob {util.hex(hptr)}, will send')
@@ -235,7 +235,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         elif pkt.typ[0] == packet.PKTTYPE_chain20:  # prepare for first blob in chain:
             h = util.hex(feed.fid)[:20]
             # FIXME where is the node ('nd') defined? It throws errors
-            pkt.undo_chain(lambda h: nd.repo.get_blob(h))
+            pkt.undo_chain(lambda h: repo.fetch_blob(h))
             self.request_chain(pkt)
         # elif pkt.typ[0] == packet.PKTTYPE_iscontn:
         #     if pkt.seq == 1: # first packet has proof, don't invoke the cb
@@ -342,7 +342,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
                     self.ndlock.release()
                 rm = []
                 for pkt in self.pending_chains:
-                    pkt.undo_chain(lambda h: self.repo.get_blob(h))
+                    pkt.undo_chain(lambda h: self.repo.fetch_blob(h))
                     if pkt.content_is_complete():
                         rm.append(pkt)
                     else:  # FIXME: should have a max retry count

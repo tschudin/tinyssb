@@ -158,7 +158,7 @@ class REPO:
             f.write(buf120)
         return hptr
 
-    def get_blob(self, hashptr):
+    def fetch_blob(self, hashptr):
         try:
             with open(self._blob_fn(hashptr), "rb") as f:
                 return f.read(120)
