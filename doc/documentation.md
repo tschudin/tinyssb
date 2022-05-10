@@ -25,8 +25,6 @@ multiple feeds organised in a tree structure that allows for an easy management
 of the data as well as an interface to mutually forget data that is not needed
 anymore.
 
-TODO More, use case, goal, less specific
-
 ## Introduction
 
 In contrast with classical SSB, tinyssb makes use of the data stored for
@@ -144,11 +142,6 @@ Log:
             +---+----..----------------------+
 ```
 
-The field "type" of the log entry is one of 7 types:
-
-"including a prefix for version identification, the feedID, the sequence number
-and the hash of the previous packet"
-
 ### Log Entry Packet Format
 
 A log entry has a virtual format containing not only the data itself but also
@@ -158,39 +151,41 @@ Those fields are:
 ```
 - PFX  = 10B   'tinyssb-v0', prefix for versioning packet formats
 - FID  = 32B   ed25519 public key (feed ID)
-- SEQ  =  4B   sequence number in big endian format
+- SEQ  =  4B   log sequence number in big endian format
 - PREV = 20B   message ID (MID) of preceding log entry
-- DMX  =  7B   demultiplexing, the hash value of the fields above, that are not
-               sent "on the wire"
-- TYP  =  1B   signature algorithm and packet type 
+- DMX  =  7B   demultiplexing, the hash value of the fields above (that are not
+               sent "on the wire")
+- TYP  =  1B   packet type 
 - PAYL = 48B   payload
 - SIG  = 64B   signature
 - MID  = 20B   messageID (hash value), used in "PREV" for the next message
 ```
 
-Note that the length of the field "PFX" is not restricted, as only its hash
+Note that the length of the field `PFX` is not restricted, as only its hash
 value is used (see below).
 
 For notation purpose, we introduce the following fields:
 
 ```
 LOG_ENTRY_NAME     = PFX + FID + SEQ + PREV
-(to compute DMX)
+   (to compute DMX)
+
 
 EXPANDED_LOG_ENTRY = LOG_ENTRY_NAME         + DMX + TYP + PAYL
                    = PFX + FID + SEQ + PREV + DMX + TYP + PAYL
-(to compute SIG)
-                   
+   (to compute SIG)
+
+
 FULL_LOG_ENTRY     = EXPANDED_LOG_ENTRY                        + SIG
                    = LOG_ENTRY_NAME         + DMX + TYP + PAYL + SIG
                    = PFX + FID + SEQ + PREV + DMX + TYP + PAYL + SIG
-(to compute MID)
+   (to compute MID)
 ``` 
 
 #### Computing the hashes and signatures
 
-The demultiplexing field is a hash computed from the fields that are not sent on
-the wire:
+The demultiplexing field is a (truncated) hash computed from the fields that are
+not sent on the wire:
 
 ```
 DMX = sha256(PFX + FID + SEQ + PREV)[:7]
@@ -229,22 +224,23 @@ The second packet format contains only three fields
 - HPTR     =  20B
 ```
 
-Note that the content can have any size between 1 and 100 bytes, unlike the
-PAYLOAD field in the Log format, that has to contain exactly 48 bytes.
+The content can have any size between 1 and 100 bytes, unlike the `PAYLOAD`
+field in the log format, that has to contain exactly 48 bytes.
 
-HPTR is a hash pointing to the **next** blob message:
+`HPTR` is a hash pointing to the **next** blob message, which implies that blobs
+need to be computed bottom up (the last packet sent is prepared first):
 
 ```
 HPTR = sha256(BLOB)[:20]
 ```
 
-We will describe its use in more detail in the section about Log packets of Type
+We will describe its use in more detail in the section about log packets of type
 1
 
 ## Log Packet Types
 
 A log entry has a 48 Bytes payload, which content must comply to the
-specification of its type (given by the field "TYP"). We will describe the 7
+specification of its type (given by the field `TYP`). We will describe the 7
 types that are described as of this version of TinySSB.
 
 ### Type 0: Plain Text
@@ -257,14 +253,14 @@ to 48B of content.
 If more than the fixed-size 48B payload should be added to the log
 (type 0), a chain can be used. As each packet must contain 120B, we split the
 content and spread it into a chain of packets that can be sent sequentially. The
-first of those packets will be a Log packet of type 1 (`0x01`), containing all
-the metadata for the content, while the rest of the data is spread among Blob
+first of those packets will be a log packet of type 1 (`0x01`), containing all
+the metadata for the content, while the rest of the data is spread among blob
 packets. The content is divided in batches of 100B each, the last 20B being a
 pointer (the hash value) to the next blob. The last blob is padded if needed,
 and its `HPTR` field (the last 20B) are all zeros, signaling the end of the
 chain.
 
-The payload field of the Log packet is split in 3 fields:
+The payload field of the log packet is split in 3 fields:
 
 ```
 - LEN      :      n Bytes   the total length of content
@@ -274,8 +270,8 @@ The payload field of the Log packet is split in 3 fields:
 
 When forming the chain, the last blob has to be created first, from which the
 last pointer value can be derived which goes into the second-last blob etc. The
-total content length (field ```LEN```) is encoded
-in [Bitcoin's varInt format](https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer)
+total content length (field `LEN`) is encoded in
+[Bitcoin's varInt format](https://en.bitcoin.it/wiki/Protocol_documentation#Variable_length_integer)
 and its length must be considered when filling the last packet.
 
 ```
@@ -308,14 +304,14 @@ and its length must be considered when filling the last packet.
                          with content of arbitrary length
 ```
 
-Note that Type-0 log entries have a fixed-length 48B payload while Type-1 log
+Note that type-0 log entries have a fixed-length 48B payload while type-1 log
 entries can have any length, even from 0 to 48 bytes. When the length is less
 than 28, the ```HPTR1``` field consists of zeros as no blobs are necessary.
 
 ## Tree structure for the feeds
 
 The five following packet types concern the creation and management of
-sub-feeds. We describe the nuts and bolts before specifying their different
+sub-feeds. We describe their nuts and bolts before specifying their different
 fields.
 
 ### Rationale of sub-feeds
@@ -326,6 +322,15 @@ feed. The parent-child relationship naturally forms a tree, extending it
 vertically. Horizontally, a continuation feed extends a node such that the tree
 shape is kept intact.
 
+```
+                root-feed (.)
+              /              \
+             /                \
+ subsub-feed (.1.1)     subsub-feed (.2.5) -> subsub-feed (.2.5') -> ...
+                               |                    /    \
+                           .2.5.1          .2.5'.1      .2.5'.2
+```
+
 We require that a child node, as well as a continuation node, specify their
 predecessor node which is found either horizontally (if a continuation), or
 vertically (if a child node). The root node has no predecessor, i.e. the
@@ -334,10 +339,12 @@ respective predecessor feed ID is set to 0.
 As a result, it is always possible to find the root node of the tree when
 starting from an arbitrary feed X like this:
 
-find_root(x):
-  while x.predecessor != 0:
-    x = x.predecessor
-  return x
+```python
+def find_root(x):
+    while x.predecessor != 0:
+        x = x.predecessor
+    return x
+```
 
 This is useful, for example, if trust claims are linked to the root node and
 these trust claims should also apply to all dependent nodes.
@@ -351,7 +358,7 @@ log entry's wire format that announces the new dependent feed.
 
 One can declare a new feed by using an entry with type 4 for a child (vertical)
 feed or type 5 for a continued (horizontal) feed. The same format is used (only
-the field TYP is different):
+the field `TYP` is different):
 
 ```
 - NFID   :  32 Bytes   ID of the new feed (child or continuation)
@@ -382,7 +389,7 @@ TODO: type 6, explain hash better?
 - PADD    :  16 Bytes   padding
 ```
 
-## D) Filtering Received Packets via "Expectation Tables"
+## Filtering Received Packets via "Expectation Tables"
 
 A node (local peer) has precise knowledge about what packets are acceptable,
 given its current state. The DMX field was introduced for letting packets
@@ -398,7 +405,7 @@ that a node subscribed for: the node can exactly predict which`PFX`,`FID`,
 local log replica. As soon as a valid entry was received, the old DMX value can
 be removed from the DEMUX_TBL and is replaced by the next one, based on the
 updated feed. Note that a publisher can stream log entries back-to-back while
-the consumer simply rotates the corresponding DMX entry.
+the consumer simply rotates the corresponding `DMX` entry.
 
 Similarly, if a log entry contains a sidechain and the subscription asked for
 replication **with** its sidechains, the node can add an expected hash pointer
@@ -406,3 +413,9 @@ value to the CHAIN_TBL table (which is the first hash pointer of this chain,
 found in the payload of the received log entry). When the first blob is
 received, the node can replace this expectation with the next hash pointer found
 in the received blob, etc
+
+## Request a log or blob entry
+
+```python
+# TODO
+```
