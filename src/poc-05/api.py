@@ -52,21 +52,23 @@ What I want:
   make child log
 Later:
   add face
-  set feed length
   close
 """
 
-tinyssb = [
-    'clean',
+__all__ = [
+    'clean',  # erase_all
     'list_trusted',
     'generate_id',
-    'open_id',
-    'add_trust',
+    'open_id',  # fetch_id
+    'follow',  # follow / subscribe
     'start_session',
     'send_log',
     'send_blob',
-    'make_child_log'
-]
+    'send',
+    'make_child_log',  # delete
+    'request_latest',
+    'close'  # do better (sync, save_state)
+]  # Context
 
 def clean():
     """
@@ -89,8 +91,7 @@ def generate_id(name):
     :param name: string
     :return: an instance of Node
     """
-    ks, pk = create_keys(name)
-    return start.mount_identity(name, ks, pk)
+    return start.generate_id(name)
 
 def open_id(local_name):
     """
@@ -101,8 +102,15 @@ def open_id(local_name):
     """
     return start.load_identity(local_name)
 
-def add_trust(local_node, public_key, alias=""):
-    start.add_trust(local_node, public_key, alias)
+def follow(local_node, public_key, alias="?"):
+    """
+    Subscribe to the feed with the given pk
+    :param local_node: instance of Node
+    :param public_key: bin encoded feedID
+    :param alias: name to give to the peer
+    :return:
+    """
+    start.follow(local_node, public_key, alias)
 
 def start_session(node, local_session_fid, remote_session_id, fct=None, window_length=0):
     """
@@ -114,6 +122,8 @@ def start_session(node, local_session_fid, remote_session_id, fct=None, window_l
     :param window_length: number of entries in a log
     :param fct: callback function
     """
+    dbg(GRE, f"Start session from \n{local_session_fid} to \n{remote_session_id}\nwith"
+             f" length = {window_length}")
     # Get log, create it if needed
     remote_id_log = node.repo.get_log(remote_session_id)
     node.repo.get_log(local_session_fid).subscription += 1
@@ -149,8 +159,8 @@ def make_child_log(node, session_name="session"):
     fid = node.me
     local_session_fid = node.ks.new(session_name)
     # Add usage session name?
-    packets = node.repo.mk_child_log(fid, nd.ks.get_signFct(fid), local_session_fid,
-                                     nd.ks.get_signFct(local_session_fid))
+    packets = node.repo.mk_child_log(fid, node.ks.get_signFct(fid), local_session_fid,
+                                     node.ks.get_signFct(local_session_fid))
     packets = [node.repo.get_log(fid)[1]] + packets
     node.push(packets, True)  # Why push packets to a newly created feed: who follows it?
 
@@ -166,35 +176,51 @@ def close(node, name):
         dbg(GRE, f"File not found")
         os.system(f"mkdir -p {file_path}")
         node.ks.dump(file_path)
-
     # Close interfaces?
     # What else?
 
+def request_latest(node, friend_id, comment="api"):
+    """
+    Request the latest packet to be sent again
+    :param node: instance of Node
+    :param friend_id: bin encoded public key
+    :param comment: bounded length comment
+    :return:
+    """
+    node.request_latest(node.repo, node.repo.get_log(friend_id), comment)
+
+def add_interface():
+    pass
+
 if __name__ == "__main__":
+    start.set_in_feed(1, 'hello', 'dasdibvsdbfi')
+    generate_id("Charlie")
+    """
     # nd = load_identity("Charlie")
     if sys.argv[1] == 'C':
         my_name = "Charlie"
         friend_name = "David"
         clean()
-        local_node = generate_id(my_name)
-        remote_node = generate_id(friend_name)
+        local_peer = generate_id(my_name)
+        remote_peer = generate_id(friend_name)
 
-        friend = util.hex(remote_node.me)
-        add_trust(local_node, util.hex(remote_node.me), friend_name)
-        add_trust(remote_node, util.hex(local_node.me), my_name)
-        close(remote_node, friend_name)
+        friend = remote_peer.me
+        follow(local_peer, remote_peer.me, friend_name)
+        follow(remote_peer, local_peer.me, my_name)
+        close(remote_peer, friend_name)
     else:
         my_name = "David"
         friend_name = "Charlie"
-        local_node = load_identity(my_name)
-        friend = list(list_trusted(my_name).keys())[1]
+        local_peer = load_identity(my_name)
+        dbg(GRE, f"friend = {list(list_trusted(my_name).keys())[1]}...")
+        friend = util.fromhex(list(list_trusted(my_name).keys())[1])
 
-    me = util.hex(local_node.me)
+    me = util.hex(local_peer.me)
 
     # bob = util.fromhex(list(list_trusted('Charlie').keys())[1])
 
-    dbg(BLU, f"{util.hex(local_node.me)} and {friend}")
-    sess = {start_session(local_node, local_node.me, util.fromhex(friend), None, 5)}
+    dbg(BLU, f"{util.hex(local_peer.me)} and {friend}")
+    sess = {start_session(local_peer, local_peer.me, friend, None, 15)}
                          # lambda m: print(f"Received: {m}"), 5)
     # send_blob(sess, bytes(1000))
     # dbg(YEL, f"Blob done")
@@ -205,16 +231,22 @@ if __name__ == "__main__":
         try:
             cmd = input("> ")
         except (EOFError, KeyboardInterrupt):
+            close(local_peer, my_name)
             print("Exiting")
-            break
+            exit(0)
         if cmd == 'q':
             break
         if cmd.startswith('add'):
             key = cmd.split(' ')[1]
-            add_trust(local_node, key, cmd.split(' ')[2])
-            sess.add(start_session(local_node, local_node.me, util.fromhex(key), None, 5))
+            follow(local_peer, key, cmd.split(' ')[2])
+            sess.add(start_session(local_peer, local_peer.me, util.fromhex(key), None, 5))
+        if cmd.startswith('r'):
+            request_latest(local_peer, friend)
+        if cmd.startswith('m'):
+            make_child_log(local_peer, list(sess)[0])
+
         for s in sess:
-            send(s, 'Hello!')
             send(s, cmd)
-    close(local_node, my_name)
+    close(local_peer, my_name)
     pass
+"""

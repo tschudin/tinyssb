@@ -14,11 +14,11 @@ I want to keep track of.
 
 ### New
 
-1. repo.get_log and repo.get_blob are not equivalent at all
-2. in node::incoming_logentry, there is a 'nd' in a lambda function. I don't
+1. in node::incoming_logentry, there is a 'nd' in a lambda function. I don't
    know where it is defined and it throws errors... (see fixme)
-3. In my api::\_\_main__, why does only one peer (David) receives packets from the
+2. In my api::\_\_main__, why does only one peer (David) receives packets from the
    other? Try to add want and blob request messages
+3. node::request_latest (see fixme)
 
 ### Old
 
@@ -31,31 +31,32 @@ I want to keep track of.
    misunderstanding by acknowledging the wrong packet (for example if the remote
    makes several children in a row and one make_child packet is lost)? Maybe
    that's our " concurrency problem"...
-
-## Former Problems (not relevant anymore):
-
-1. The request packets ('blobs' and 'want') are not part of the feed by itself.
-   Should they nevertheless be described in the documentation?
-   [Correct, create a point in doc and let him document that]
-2. The `log_burning_demo.py` does a lot of non-trivial work, and people using
-   the library will need to do it as well. What interface do we want to give to
-   the users? [ Good luck ;)]
-3. I don't think `Keystore::dump()` and `Keystore::load()` are ever called. It
-   makes the code non-reentrant, as we don't keep track of the sub-feeds key
-   pairs
-   [Not yet, but good think (next poc)]
-4. Repo::mk_child_log() specification says that last 12 bytes of
-   'PKTTYPE_ischild'(and of 'PKTTYPE_iscontn') = hash(fid[seq]) (fid and seq
-   from referenced packet from other feed), but here we use the last 12B of the
-   (64B) signature. [He looks]
-5. There's nothing in the documentation on the format of the packets as stored
-   in the disk (as specified in REPO::allocate_log() and LOG::). Should I add
-   it? [Try to understand and write, but only first log]
-6. In `btc_var_int(i)` and `btc_var_int_decode(buf)`, length are bounded (total
+3. In `btc_var_int(i)` and `btc_var_int_decode(buf)`, length are bounded (total
    length must fit within 3 bytes), but a blob could theoretically be
    arbitrarily long. Shouldn't we use the version from bipf-python
    `varint_decode()` and `varint_encode()` that uses a loop?
    [Not the same!!! BIPF is better]
+
+## Former Problems (not relevant anymore):
+
+1. [DONE] repo.get_log and repo.get_blob are not equivalent at all [fetch_blob]
+2. The request packets ('blobs' and 'want') are not part of the feed by itself.
+   Should they nevertheless be described in the documentation?
+   [Correct, create a point in doc and let him document that]
+3. The `log_burning_demo.py` does a lot of non-trivial work, and people using
+   the library will need to do it as well. What interface do we want to give to
+   the users? [ Good luck ;)]
+4. I don't think `Keystore::dump()` and `Keystore::load()` are ever called. It
+   makes the code non-reentrant, as we don't keep track of the sub-feeds key
+   pairs
+   [Not yet, but good think (next poc)]
+5. Repo::mk_child_log() specification says that last 12 bytes of
+   'PKTTYPE_ischild'(and of 'PKTTYPE_iscontn') = hash(fid[seq]) (fid and seq
+   from referenced packet from other feed), but here we use the last 12B of the
+   (64B) signature. [He looks]
+6. There's nothing in the documentation on the format of the packets as stored
+   in the disk (as specified in REPO::allocate_log() and LOG::). Should I add
+   it? [Try to understand and write, but only first log]
 7. The "acknowledge" packet is not properly and consistently used I think, what
    might cause problems:
     1. in `session.py`, `SlidingWindow::_process()`, we create the ack packet,
