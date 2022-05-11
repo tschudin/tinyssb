@@ -7,136 +7,116 @@ _draft 2022-05-10_
 To construct a good API, I write an elegant pseudocode for a chat app, and I'll
 stick the actual API to it.
 
-## Example 1
+## Example : open existing
 
 ```python
 import tinyssb as tiny
 
-# List ids that I can load
-print(tiny.list_identities())
-i = input("Choose an identity to open")
-if x:
-    identity = tiny.fetch_id(i)
-else:
-    identity = tiny.generate_id()
-
-act = input(identity.activities())  # choose a log
-
-if not identity.open(act):
-    identity.start(act)  # Create a new feed
-```
-
-## Example 2
-
-```python
-import tinyssb as tiny
-
-# List ids that I can load
-print(tiny.list_identities())
-i = input("Choose an identity to open")
-if x:
-    identity = tiny.fetch_id(i)
-else:
-    identity = tiny.generate_id()
-
-chat = input(identity.chats())  # choose a conversation with a peer
-
-chat.open()
-while True:
-    msg = input("> ")
-    if msg == 'quit':
-        chat.close()
-    else:
-        chat.send(msg)
-
-```
-
-## Example 3
-
-```python
-import tinyssb as tiny
-
-# List ids that I can load (also print it) 
+# List ids that I can load (only the names associated to it)
 ids = tiny.list_identities()
-i = input("Choose an identity to open (write its ")
-if x:
-    identity = tiny.fetch_id(i)
-else:
-    identity = tiny.generate_id()
-
-# print the different sessions (subfeeds) available
-# A session is a subfeed that is shared with one peer
-print(identity.sessions())
-remote_key = input("Enter the public key for a new session")
-# session = identity.create_session()
-session = identity.open_session()
-
-session.open()
-while True:
-    msg = input("> ")
-    if msg == 'quit':
-        session.close()
-    else:
-        session.send(msg)
-
-```
-
-## Example 4 Open existing
-
-```python
-import tinyssb as tiny
-
-# List ids that I can load (also print it) 
-ids = tiny.list_identities()
-i = input("Choose an identity to open (write its ")
-identity = tiny.fetch_id(i)
+i = input(f"Choose an identity to open (write its index): {ids} ")
+identity = tiny.fetch_id(ids[i])
 rd = identity.get_root_directory()
 ad = rd['apps']
 chess_games = ad['chess']
-
-chess_games[1].start()  # start a thread in the background
+ui = ...
+identity.launch_app(chess_games, ui)  # enter the app
 
 # print the different sessions (subfeeds) available
 # A session is a subfeed that is shared with one peer
-print(identity.application_list())
+with_ = input(rd['alias'])
 
-session = identity.open_session()
+session = identity.open_session(with_)
 
-session.open()
 while True:
-    msg = input("> ")
+    msg = ui.input("> ")
     if msg == 'quit':
-        session.close()
+        identity.sync()
+        break
     else:
-        session.send(msg)
-
-bipf(['set', string, feedID])
-
-bipf(['del', string])
+        identity.send(msg)
 
 ```
 
-## Idea list
+## 'Directory'
 
-1. Have a root feed that controls the identity, but used mostly for metadata
-2. Have `sessions` that are sub-feeds (child logs) to communicate with one
-   person
+The navigation data can be obtained by get_root_directory(), and we call it
+`directory`. It is a python list of this form (`bin_key` is a byte array key):
 
-##
+```python
+directory = {
+    'apps': {
+        'chess': '`bin_key`',  # personal keys only
+        'chat': '`bin_key`'
+    },
+    'alias': {
+        'Chiara': '`bin_key`',
+        'David_chat': '`bin_key`'
+    }
+}
+```
 
-1. One session per application
-2. Root feed as dict to pointer to aliases (private, about other peers), feed
-   information, apps dictionary
+From each element of `apps`, we can access the different running games or
+sessions
 
-## Log tree
+## Discussion 11.05
+
+3 sub-feeds: `alias`, `apps` and `public`:
+
+- `public` :  my public identity (ex: I want to start a chess game)
+- `alias`  :  my 'contact list', a dictionary with `public` feed ids from other
+  peers with a nickname (for me only)
+- `apps`   :  a list of apps that I can run
+
+Every time I add a new entry into `apps`, I create a feed that will hold a list
+of the `'sessions'` (or 'games' for a chess app). It contains `create` and
+`delete` packet (one `delete` for one `create`, that need to be enforced).
+`create` packets contain:
+
+- `instance`    : a game identifier
+- `local_feed`  : a (newly created) feed id where I will write the data
+- `remote_feed` : the remote feed id to replicate (later: will be a list to
+  allow for multiplayer? )
+
+For each app `n` there is a feed `n` that holds a list of activ 'games'. This
+feed only accepts `create` and `delete` packets. This is implemented as a list
+ADT with a short feed length, often making continuation sub-feeds that copies
+the data we are still interested to (the exact form of this is not yet
+specified).
+
+```
+               root 
+             /   |   \
+            /    |    \
+     public    alias    app 
+                       /  |  \
+                      /   |   \
+                 chess  chat  app_name
+```
+
+### Ideas and questions:
+
+1. One of three options:
+    - the local feed is a sub-feed of `root`
+    - the local feed is a sub-feed of `apps`
+    - the local feed is stand-alone (problem: we need to store the private key
+      somewhere, we need to create a bunch of stuff, I think it's a bad idea)
+      I suggest using the `apps` feed, and make use of the 16 bytes that are not
+      defined for the app name (feed id and name should be all we need to
+      identify it)
+2. Create 2 new packet types: `create` and `delete`. `create` points to a blob
+   with the needed data (see above) and `delete` is a normal log with the feed
+   id and game identifier (that implies that it is no longer than 16 bytes)
+
+## [outdated] Log tree
 
 We decided to keep the root log as holder of metadata only. It keeps information
 about 3 default sub-feeds (sub-feeds are child feeds):
 
-- aliases     : a contact list, with pk as keys and names (how I personally
+- aliases : a contact list, with pk as keys and names (how I personally
   call them) as values
-- information : (what exactly?)
-- apps        : a dictionary of the used apps. The keys are the app names and
+- config  : name and feed id of the root
+- apps    : a dictionary of the used apps. The keys are the app names and
   the values are the corresponding feed ids.
 
 In addition, each app has its own log (a child feed). A programmer is free to
@@ -144,8 +124,10 @@ use the feed for its own application, and a friendly peer will replicate only
 this sub-feed. The other 3 peers are (for the moment) not replicated (and not
 encrypted).
 
-[Proposition]
+Proposition:
 The content of the default feeds is bipf encoded, it is just a list. We
-introduce 2 new packet types `0x07` and `0x08` that correspond respectively to 
+introduce 2 new packet types `0x07` and `0x08` that correspond respectively to
 `set` and `delete` (a `delete` comes only after a `set`).
 
+Should we separate (in the folder) my personal feeds from the other feeds
+(which are read-only)? [No]
