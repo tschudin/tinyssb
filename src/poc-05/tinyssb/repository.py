@@ -16,9 +16,9 @@ directory structure of a repository:
               +--> 05/REST_OF_HASHPTR2_IN_HEX
               `--> AA/REST_OF_HASHPTR3_IN_HEX
 
-blobs: stored as files of length 120 (!)
+blobs: stored as files of length 120
 logs: see end of this file for a description of the log file format,
-      it's a multiple of 128B
+      it's a multiple of 120B
 '''
 
 import hashlib
@@ -27,6 +27,7 @@ import sys
 
 from tinyssb import packet, util
 from tinyssb.dbg import *
+from .dbg import *
 
 if sys.implementation.name == 'micropython':
     def isfile(fn):
@@ -77,7 +78,7 @@ class REPO:
         if isfile(fn):
             print("log", fn, "already exists")
             return None
-        hdr = bytes(12)  # should have version and other magic bytes
+        hdr = bytes(4)  # should have version and other magic bytes
         hdr += fid
         hdr += parent_fid + parent_seq.to_bytes(4, 'big')
         buf = trusted_seq.to_bytes(4, 'big') + trusted_msgID
@@ -90,10 +91,12 @@ class REPO:
                                     self.vfct)
             if pkt == None: return None
             hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid  # as front
-        assert len(hdr) == 128, "log file header must be 128B"
+        assert len(hdr) == 120, "log file header must be 120B"
+        assert len(buf120) == 120
+        # dbg(BLU, f"WRITE:\nhdr: {util.hex(hdr)};\nbuf: {util.hex(buf120)}")
         with open(fn, 'wb') as f:
             f.write(hdr)
-            if buf120 != None: f.write(bytes(8) + buf120)
+            if buf120 != None: f.write(buf120)
         return self.get_log(fid)
 
     def mk_generic_log(self, fid, typ, buf48, signFct,
@@ -197,8 +200,8 @@ class LOG:
         self.verify_fct = verify_signature_fct
         self.file = open(fileName, 'rb+')
         self.file.seek(0)
-        hdr = self.file.read(128)
-        hdr = hdr[12:]  # first 12B unused
+        hdr = self.file.read(120)
+        hdr = hdr[4:]  # first 12B unused
         self.fid = hdr[:32]
         self.parfid = hdr[32:64]
         self.parseq = int.from_bytes(hdr[64:68], 'big')
@@ -207,7 +210,7 @@ class LOG:
         self.frontS = int.from_bytes(hdr[92:96], 'big')  # seqNr of last rec
         self.frontM = hdr[96:116]                        # msgID of last rec
         self.file.seek(0, 2)
-        assert self.file.tell() == 128 + 128 * (self.frontS - self.anchrS), \
+        assert self.file.tell() == 120 + 120 * (self.frontS - self.anchrS), \
             "log file length mismatch"
         self.acb = None  # append callback
         self.subscription = 0
@@ -219,9 +222,9 @@ class LOG:
             seq = self.frontS + seq + 1
             if seq < 0:
                 raise IndexError
-        pos = 128 * (seq - self.anchrS)
+        pos = 120 * (seq - self.anchrS)
         self.file.seek(pos)
-        buf = self.file.read(128)[8:]
+        buf = self.file.read(120)
         if not buf or len(buf) == 0: return None
         mid = self.anchrM if seq == self.anchrS + 1 else bytes(20)
         return packet.from_bytes(buf, self.fid, seq, mid, None)
@@ -236,11 +239,11 @@ class LOG:
         assert pkt.seq == self.frontS + 1, "new log entry not in sequence"
         # append to file:
         self.file.seek(0, 2)
-        self.file.write(bytes(8) + pkt.wire)
+        self.file.write(pkt.wire)
         # update file header:
         self.frontS += 1
         self.frontM = pkt.mid
-        self.file.seek(12 + 92)  # position of front fields
+        self.file.seek(4 + 92)  # position of front fields
         self.file.write(self.frontS.to_bytes(4, 'big') + self.frontM)
         self.file.flush()
         # os.fsync(self.f.fileno())
@@ -302,16 +305,16 @@ A) Internal structure of an append-only log file:
           | anchorMID                             frontMID |
 
 
-  The log file is a sequence of 128 byte blocks, the first is a header block
+  The log file is a sequence of 120 byte blocks, the first is a header block
 
-    128B header block
-    128B log entry N
-    128B log entry N+1
+    120B header block
+    120B log entry N
+    120B log entry N+1
          ..
 
 
   The header block persists critical metadata for the log:
-  - reserved   (12B)
+  - reserved   ( 4B)
   - feed ID    (32B, ed25519 public key)
   - parent ID  (32B, if this log is a subfeed)
   - parent SEQ ( 4B, seqNr where the parent feed declared this subfeed)
@@ -321,8 +324,7 @@ A) Internal structure of an append-only log file:
   - front MID  (20B, msgID of last record in the file)
 
  
-  Log entries, following the header block, occupy also 128 bytes:
-  - reserved   (  8B, could be RND or other mgmt information)
+  Log entries, following the header block, occupy also 120 bytes:
   - packet     (120B, DMX+T+PAYLOAD+SIGNATURE)
   Once a log entry is in the file, it is declared trusted
   (because we verify each packet before appending it)
@@ -330,7 +332,7 @@ A) Internal structure of an append-only log file:
 
 B) Blobs:
 
-  - any         (128B)
+  - any         (120B)
   - stored in a separate directory
 
 
@@ -340,7 +342,7 @@ C) Sidenote, unrelated to this repository code:
    other feeds i.e., wrapping a feed inside another feed, or to
    tunnel a mix (of log entries from several feeds) inside a single feed.
 
-   Given a (inner) packet X of length 128B (data), create two (outer) packets:
+   Given a (inner) packet X of length 120B (data), create two (outer) packets:
 
    i) log entry   D+T+P+SIG, where T is chain20
                                    P is 28B (data from X) + 20B (hptr)

@@ -291,7 +291,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         for p in self.peers:
             want_dmx = packet._dmx(p + b'want')
             wire = want_dmx + feed.fid + nextseq
-            # does not need padding to 128B, it's not a log entry or blob
+            # does not need padding to 120B, it's not a log entry or blob
             d = util.hex(want_dmx)
             h = util.hex(feed.fid)[:20]
             for f in self.faces:

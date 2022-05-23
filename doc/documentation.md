@@ -79,8 +79,6 @@ allows us to spare storage as only the bytes sent need to be stored.
 
 ## Packet Layout
 
-TODO 120 or 128?
-
 A packet must be 120 bytes long, excluding link- or connexion-specific addition
 dependent on the protocol (e.g. cloaking, encryption). Packets are either
 _blob_ or _log entries_
@@ -98,12 +96,12 @@ _blob_ or _log entries_
 
 ```
 
-<------------------- 128B ------------------->
+<------------------- 120B ------------------->
 
-  8B                120B ("wire bytes")
-+-----+-------------------..-----------------+
-| RND | cloaked packet content               | frame
-+-----+-------------------..-----------------+
+                    120B ("wire bytes")
+      +-------------------..-----------------+
+      | cloaked packet content               | frame
+      +-------------------..-----------------+
 
       where uncloaked PACKET content is one of:
 Blob:
