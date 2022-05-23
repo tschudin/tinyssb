@@ -2,9 +2,10 @@
 import os
 import json
 
+import bipf
 import cbor2
 
-from tinyssb import util, start
+from tinyssb import util, start, identity
 from tinyssb import io, keystore, node, packet
 from tinyssb import repository, session, symtab, util
 from tinyssb.dbg import *
@@ -39,162 +40,122 @@ Nodejs :
   ]
 """
 
-"""
-What I want:
-  clean
-  generate id
-  open id (stored in file system)
-  add trust (for a given pk)
-  list trusted peer (from file system)
-  start session (with callback func as arg)
-  send log (always to all trusted)
-  send blob
-  make child log
-Later:
-  add face
-  close
-"""
-
 __all__ = [
-    'clean',  # erase_all
-    'list_trusted',
+    'erase_all',
+    'list_identities',
     'generate_id',
-    'open_id',  # fetch_id
-    'follow',  # follow / subscribe
-    'start_session',
-    'send_log',
-    'send_blob',
-    'send',
-    'make_child_log',  # delete
-    'request_latest',
-    'close'  # do better (sync, save_state)
+    'fetch_id'
+    # 'Identity'
 ]  # Context
 
-def clean():
+__id__ = [
+    'get_root_directory',
+    'list_contacts',
+    'follow',
+    'unfollow',
+    'launch_app',
+    'add_app',
+    'open_session',
+    'send',
+    'request_latest',
+    'add_interface',
+    'sync'
+]
+
+def erase_all():
     """
-    Delete all existing peers.
+    Delete all data on the file system.
     :return: None
     """
     os.system("rm -rf data")
 
-def list_trusted(by):
-    with open(f"{start.DATA_FOLDER}{by}/config.json") as f:
-        config = json.load(f)
-    return config['alias']
+def list_identities():
+    """
+    List identities that are on the data folder.
+    Use case: different people use the same computer.
+    To do: add security checks
+    :return: an array of strings
+    """
+    return os.listdir(start.DATA_FOLDER)
 
 def generate_id(name):
     """
     Create new peer (delete data if existing).
-    Stores the data on the file system, make generic log, add udp_multicast as
-    interface and start it (listen/read loops).
+    Stores the data on the file system, make generic log, create default sub-feeds and
+    add udp_multicast as interface and start it (listen/read loops).
     Only trusted peer is self
     :param name: string
     :return: an instance of Node
     """
     return start.generate_id(name)
 
-def open_id(local_name):
+def fetch_id(name):
     """
     Launch a peer whose data is stored locally
-    :param local_name: the name of the folder
+    :param name: the name of the folder
     :return: instance of node
-    :bug: use keystore load() and dump()
     """
-    return start.load_identity(local_name)
-
-def follow(local_node, public_key, alias="?"):
-    """
-    Subscribe to the feed with the given pk
-    :param local_node: instance of Node
-    :param public_key: bin encoded feedID
-    :param alias: name to give to the peer
-    :return:
-    """
-    start.follow(local_node, public_key, alias)
-
-def start_session(node, local_session_fid, remote_session_id, fct=None, window_length=0):
-    """
-    Tell tinyssb what to do with incoming messages.
-    Also add reciprocity: the local log subscribes to the remote log
-    :param node: local node
-    :param local_session_fid: fid of local
-    :param remote_session_id: fid to subscribe to
-    :param window_length: number of entries in a log
-    :param fct: callback function
-    """
-    dbg(GRE, f"Start session from \n{local_session_fid} to \n{remote_session_id}\nwith"
-             f" length = {window_length}")
-    # Get log, create it if needed
-    remote_id_log = node.repo.get_log(remote_session_id)
-    node.repo.get_log(local_session_fid).subscription += 1
-
-    # Use remote's main feed
-    node.sess = session.SlidingWindow(node, local_session_fid, remote_session_id)
-    node.sess.start(fct)
-    if window_length > 0:
-        node.sess.window_length = window_length
-    return node.sess
-
-def send_log(session, msg):
-    """
-    Send a log message, that must be less than 48B
-    :param msg: bytes array
-    :bug: should send blob if too long
-    """
-    session.write_plain_48B(cbor2.dumps([msg]))
-
-def send_blob(session, msg):
-    session.write_blob_chain(cbor2.dumps(msg))
-
-def send(session, msg):
-    if len(msg) > 48:
-        dbg(GRE, f"Sending Blob!!!")
-        send_blob(session, msg)
-    else:
-        dbg(GRE, f"Sending Log")
-        send_log(session, msg)
-
-
-def make_child_log(node, session_name="session"):
-    fid = node.me
-    local_session_fid = node.ks.new(session_name)
-    # Add usage session name?
-    packets = node.repo.mk_child_log(fid, node.ks.get_signFct(fid), local_session_fid,
-                                     node.ks.get_signFct(local_session_fid))
-    packets = [node.repo.get_log(fid)[1]] + packets
-    node.push(packets, True)  # Why push packets to a newly created feed: who follows it?
-
-def close(node, name):
-    folder_path = start.DATA_FOLDER + name + '/_backed/'
-    os.system(f"mkdir -p {folder_path}")
-
-    file_name = util.hex(node.me)
-    file_path = folder_path + file_name
-    try:
-        node.ks.dump(file_path)
-    except FileNotFoundError:
-        dbg(GRE, f"File not found")
-        os.system(f"mkdir -p {file_path}")
-        node.ks.dump(file_path)
-    # Close interfaces?
-    # What else?
-
-def request_latest(node, friend_id, comment="api"):
-    """
-    Request the latest packet to be sent again
-    :param node: instance of Node
-    :param friend_id: bin encoded public key
-    :param comment: bounded length comment
-    :return:
-    """
-    node.request_latest(node.repo, node.repo.get_log(friend_id), comment)
-
-def add_interface():
-    pass
+    return start.load_identity(name)
 
 if __name__ == "__main__":
-    start.set_in_feed(1, 'hello', 'dasdibvsdbfi')
-    generate_id("Charlie")
+    # erase_all()
+    # peer = generate_id("Charlie")
+    peer = load_identity("Charlie")
+    peer.follow(util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Paul")
+    peer.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "John")
+    peer.unfollow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'))
+
+    dbg(BLU, f"{peer.directory['aliases']}")
+    # dbg(GRE, util.hex(peer._node.peers[0]))
+    # dbg(BLU, f"{[util.hex(v) for k, v in peer.directory['aliases'].items()]}")
+
+    # ids = list_identities()
+    # # i = input(f"Choose an identity to open (write its index): {ids} ")
+    # i = 0
+    # dbg(GRE, f"load:\n\n\n\n")
+    #
+    # identity = fetch_id(ids[int(i)])
+    # dbg(YEL, identity.directory)
+    # dbg(BLU, f"{identity.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fa096058bfa01d0aef146d3856388964df56d'), 'Kaci')}")
+    # # TODO add app
+    # identity.add_app("test")
+    # dbg(YEL, identity.directory)
+    # sess = identity.open_session(identity.directory['aliases']['Kaci'])
+    # sess.send(bipf.dumps("Hello"))
+    """
+    rd = identity.get_root_directory()
+    ad = rd['apps']
+    chess_games = ad['chess']
+    ui = ...
+    identity.launch_app(chess_games, ui)  # enter the app
+
+    # print the different sessions (subfeeds) available
+    # Example: a chat, a chess game, ...
+    with_ = input(rd['alias'])
+
+    session = identity.open_session(with_)
+    # session.register(upcall_function)
+    while True:
+        msg = ui.input("> ")
+        if msg == 'quit':
+            identity.sync()
+            break
+        else:
+            session.send(msg)
+    """
+
+    # erase_all()
+    # # dbg(BLU, list_identities())
+    # # start.set_in_feed(1, 'hello', 'dasdibvsdbfi')
+    # peer = generate_id("Charlie")
+    # peer.follow(util.fromhex("5920e93bd6ebbaa57a3a571d3bc1eeb850f4948fde07e08bcd25ce49820978aa"), "Carla")
+    # dbg(GRE, peer.directory)
+    # # start.write_bipf(peer, {'set': {'Chark': peer.me}}, peer.me)
+    # # start.read_bipf(peer.repo, peer.me)
+    #
+    # peer._node.ks.dump(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer._node.me))
+    # peer._node.ks.load(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer._node.me))
+
     """
     # nd = load_identity("Charlie")
     if sys.argv[1] == 'C':

@@ -134,7 +134,12 @@ class REPO:
                                       buf48, contSign)
         return [pkt, newFeed[1]]
 
-    def get_log(self, fid):  # returns a LOG, or None
+    def get_log(self, fid):
+        """
+        Obtain an instance of LOG
+        :param fid: bin encoded feed id
+        :return: a LOG, or None
+        """
         if not fid in self.open_logs:
             fn = self._log_fn(fid)  # file name
             if not isfile(fn): return None

@@ -20,12 +20,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.dmxt  = {}    # DMX  ~ dmx_tuple  DMX filter bank
         self.blbt  = {}    # hptr ~ blob_obj  blob filter bank
         self.users = {}    # fid  ~ user_obj  the users I serve (soc graph)
-        # self.peers = {}    # fid  ~ peer_obj  other nodes
+        self.peers = peerlst    # fid other nodes
         self.timers = []
         self.comm = {}
         #
         self.me = me
-        self.peers = peerlst
         self.pending_chains = []
         self.next_timeout = [0]
         self.ndlock = _thread.allocate_lock()
@@ -105,13 +104,13 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 f.enqueue(pkt.wire)
             feed.subscription = 0
 
-    def write_plain_48B(self, fid, buf48, sign):
+    def write_plain_48B(self, fid, buf48, sign=None):
         self.write_typed_48B(fid, packet.PKTTYPE_plain48, buf48, sign)
 
-    def write_typed_48B(self, fid, typ, buf48, sign):
+    def write_typed_48B(self, fid, typ, buf48, sign=None):
         """
         Prepare next log entry, finalise this packet and send it.
-        :param fid: feed id
+        :param fid: feed id (bin encoded)
         :param typ: signature algorithm and packet type
         :param buf48: payload (will be padded)
         :param sign: signing function
@@ -119,17 +118,23 @@ class NODE:  # a node in the tinySSB forwarding fabric
         """
         feed = self.repo.get_log(fid)
         self.ndlock.acquire()
-        pkt = feed.write_typed_48B(typ, buf48, sign)
+        if sign is None:
+            pkt = feed.write_typed_48B(typ, buf48, lambda msg: self.ks.sign(fid, msg))
+        else:
+            pkt = feed.write_typed_48B(typ, buf48, sign)
         self.arm_dmx(pkt.dmx) # remove potential old demux handler
         self.ndlock.release()
         for f in self.faces:
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")
             f.enqueue(pkt.wire)
 
-    def write_blob_chain(self, fid, buf, sign):
+    def write_blob_chain(self, fid, buf, sign=None):
         feed = self.repo.get_log(fid)
         self.ndlock.acquire()
-        pkt, blobs = feed.prepare_chain(buf, sign)
+        if sign is None:
+            pkt, blobs = feed.prepare_chain(buf, lambda msg: self.ks.sign(fid, msg))
+        else:
+            pkt, blobs = feed.prepare_chain(buf, sign)
         buffer = self.repo.persist_chain(pkt, blobs)[:1]
         self.ndlock.release()
 
@@ -277,7 +282,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
             pass
 
     def request_latest(self, repo, feed, comment="?"):
+        # FIXME: I am confused about 'feed' and 'self.me'. I think 'me' is just a byte
+        #  array of the (binary) public key, but feed is an instance of class LOG (otherwise
+        #  call to method getfront() throws an error...
         if feed == self.me: return
+        # if feed.fid == self.me: return ???
         seq, prevhash = feed.getfront()
         seq += 1
         nextseq = seq.to_bytes(4, 'big')

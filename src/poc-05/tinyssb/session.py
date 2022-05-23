@@ -2,9 +2,28 @@
 
 # tinyssb/session.py
 # 2022-04-14 <christian.tschudin@unibas.ch>
+import cbor2
+from . import packet, util
+from .dbg import *
 
-from tinyssb import packet, util
-from tinyssb.dbg import *
+
+class Session:
+
+    def __init__(self, nd, localFID, remoteFID):
+        self.window = SlidingWindow(nd, localFID, remoteFID)
+        self.upcall = None  # client(s), currently we ignore ports
+
+    def set_upcall(self, upcall):
+        self.window.upcall = upcall
+
+    def send(self, msg):
+        if len(msg) > 48:
+            self.window.write_blob_chain(cbor2.dumps([msg]))
+        else:
+            self.window.write_typed_48B(packet.PKTTYPE_plain48, cbor2.dumps([msg]))
+
+    def start(self, callback=None):
+        self.window.start(callback)
 
 
 class SlidingWindowClient:
@@ -21,7 +40,7 @@ class SlidingWindowClient:
         pass
 
     def __del__(self):
-        self.slw.deregister(port)
+        self.slw.deregister(self.port)
         self.slf = None
 
     pass
@@ -34,6 +53,8 @@ class SlidingWindow:
         self.lfd = nd.repo.get_log(localFID)
         self.lfdsign = lambda msg: nd.ks.sign(localFID, msg)
         self.rfd = nd.repo.get_log(remoteFID)
+        # self.rfd = []
+        # self.rfd.append(self.nd.repo.get_log(remoteFID))
         self.pfd = None # pending feed (oldest unacked cont feed), test needed
         self.upcall = None # client(s), currently we ignore ports
         self.started = False
@@ -73,7 +94,7 @@ class SlidingWindow:
         self.nd.write_blob_chain(self.lfd.fid, buf, self.lfdsign)
 
     def on_incoming(self, pkt):
-        # dbg(BLU, f"SESS: incoming {pkt.fid[:20].hex()}:{pkt.seq} {pkt.typ}")
+        dbg(BLU, f"SESS: incoming {pkt.fid[:20].hex()}:{pkt.seq} {pkt.typ}")
         if self.started:
             self._process(pkt)
         else:
@@ -82,6 +103,8 @@ class SlidingWindow:
     def _process(self, pkt):
         # print("SESS _processing")
         if pkt.typ[0] == [packet.PKTTYPE_contdas]:
+            # self.rfd.remove(pkt.fid)
+            # self.rfd[pkt.payload[:32]] = self.nd.repo.get_log(pkt.payload[:32])
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
             # self.nd.repo.del_log(pkt.fid)
             return
@@ -90,6 +113,9 @@ class SlidingWindow:
             # should verify proof
             oldFID = pkt.payload[:32]
             oldFeed = self.nd.repo.get_log(oldFID)
+            # print(oldFeed.getfront)
+            # oldFeed.getfront[0]
+            # pkt.payload[32:36]
             if not oldFeed.getfront[0] == pkt.payload[32:36]:
                 dbg(RED, f"Continue feed: sequence number doesn't match:"
                          f" {oldFeed.getfront[0]} vs {pkt.payload[32:36]}")
@@ -128,11 +154,12 @@ class SlidingWindow:
         # including acknowledging (and indirectly free) segments
         # FIXME: what about child logs?
         i = 1
+        # for feed in self.rfd:
         while i <= len(self.rfd):
             pkt = self.rfd[i]
             self._process(pkt)
             if pkt.typ[0] == packet.PKTTYPE_contdas:
-                i = 1 # restart loop for continuation segment
+                i = 1  # restart loop for continuation segment
             else:
                 i += 1
         if callback is None:

@@ -23,25 +23,26 @@ ui = ...
 identity.launch_app(chess_games, ui)  # enter the app
 
 # print the different sessions (subfeeds) available
-# A session is a subfeed that is shared with one peer
+# Example: a chat, a chess game, ...
 with_ = input(rd['alias'])
 
 session = identity.open_session(with_)
-
+session.register(upcall_function)
 while True:
     msg = ui.input("> ")
     if msg == 'quit':
         identity.sync()
         break
     else:
-        identity.send(msg)
+        session.send(msg)
 
 ```
 
 ## 'Directory'
 
 The navigation data can be obtained by get_root_directory(), and we call it
-`directory`. It is a python list of this form (`bin_key` is a byte array key):
+`directory`. It is a python list of this form (`bin_key` is a byte array public
+key):
 
 ```python
 directory = {
@@ -63,7 +64,8 @@ sessions
 
 3 sub-feeds: `alias`, `apps` and `public`:
 
-- `public` :  my public identity (ex: I want to start a chess game)
+- `public` :  my public identity (used for example when I want to start a chess
+  game)
 - `alias`  :  my 'contact list', a dictionary with `public` feed ids from other
   peers with a nickname (for me only)
 - `apps`   :  a list of apps that I can run
@@ -89,10 +91,42 @@ specified).
              /   |   \
             /    |    \
      public    alias    app 
-                       /  |  \
-                      /   |   \
-                 chess  chat  app_name
+                      /  |  \
+                     /   |   \
+                chess  chat  app_name
 ```
+
+### Alias sub-feed
+
+The alias sub-feed keeps track of the public keys of other peers, as a contact
+list (to be exact, it stores key-value pairs containing the public key of
+the `public` sub-feed of other peers and a given name). Note that the name is
+private (not known by the person it refers to or anybody else) and that its
+length is bounded: its BIPF representation must not be longer than 16 bytes.
+The idea is to store the entries in a single log entry. Except feed management
+(`is_child`) entries, we have only `plain_48` entries that follow one of these
+patterns:
+
+- `Set`:
+    - 32 bytes public key
+    - 16 bytes (BIPF encoded) name (eventually padded)
+- `Delete`:
+    - 16 bytes all zeros
+    - 32 bytes public key
+
+Possible extensions:
+
+- add a `Change` pattern to change the name (old name and new name). This would
+  require to have unique names (which is not required for the sub-feed, but
+  maybe it should be enforced anyway)
+- add a special field of one byte to distinguish between the types (downside:
+  name will have to be shorter)
+    - eventually, add packet specification types
+- I think we should not have feed continuation. When it contains too
+  many `delete` (for example 25% of the packets are `delete` packets), create a
+  new child feed from the root feed, copy all contacts that have not been
+  deleted. The old feed will be ignored (see start.load_identity()) and can be
+  deleted.
 
 ### Ideas and questions:
 
@@ -107,6 +141,18 @@ specified).
 2. Create 2 new packet types: `create` and `delete`. `create` points to a blob
    with the needed data (see above) and `delete` is a normal log with the feed
    id and game identifier (that implies that it is no longer than 16 bytes)
+
+## Remarks
+
+1. I'm getting lost with the encodings: cbor, bipf, hex, bytes... Which one
+   should I use?
+2. Data to keep track of:
+    1. outside of logs:
+        1. name
+        2. root public key
+        3. root private key
+    2. in root log:
+        1.
 
 ## [outdated] Log tree
 

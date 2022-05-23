@@ -324,9 +324,9 @@ shape is kept intact.
                 root-feed (.)
               /              \
              /                \
- subsub-feed (.1.1)     subsub-feed (.2.5) -> subsub-feed (.2.5') -> ...
-                               |                    /    \
-                           .2.5.1          .2.5'.1      .2.5'.2
+    sub-feed (.1.1)     sub-feed (.2.5) -> sub-feed (.2.5') -> ...
+                               |                 /    \
+                           .2.5.1       .2.5'.1      .2.5'.2
 ```
 
 We require that a child node, as well as a continuation node, specify their
