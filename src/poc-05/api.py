@@ -1,65 +1,17 @@
 # tinyssb/api.py
-import os
 import json
-
+import os
 import bipf
-import cbor2
 
-from tinyssb import util, start, identity
-from tinyssb import io, keystore, node, packet
-from tinyssb import repository, session, symtab, util
 from tinyssb.dbg import *
-from tinyssb.start import *
-
-"""
-Nodejs :
-  ssb-keys = [
-    'generate', # (create_new_peer)
-    'load_or_create_sync',  # with path to folder
-    'sign_obj',
-    'verify_obj'
-  ]:
-  only generate. load is not secure yet, and sign/verify are automatic
-  
-  ssb-validate = [
-    'initial',  # return 'state'
-    'append',  # takes <state, smth?, message>
-    'create',  # takes <list_of_dest, fid, null?, content(?), timestamp>
-  ]:
-  First version: have only
-  
-  ssb-ref = [
-    'isFeed'  # takes <fid>
-  ]
-  secret_stack = [
-    'secretStack',  # takes <{appKey:"..."}>
-    'stack',  # takes <{port, keys}>, return exampleApp
-    'exampleApp.manifest',
-    'exampleApp.address',
-    'exampleApp.close'
-  ]
-"""
+from tinyssb import io, keystore, node, packet
+from tinyssb import repository, util, identity
 
 __all__ = [
     'erase_all',
     'list_identities',
     'generate_id',
-    'fetch_id'
-    # 'Identity'
-]  # Context
-
-__id__ = [
-    'get_root_directory',
-    'list_contacts',
-    'follow',
-    'unfollow',
-    'launch_app',
-    'add_app',
-    'open_session',
-    'send',
-    'request_latest',
-    'add_interface',
-    'sync'
+    'load_identity'
 ]
 
 def erase_all():
@@ -76,38 +28,118 @@ def list_identities():
     To do: add security checks
     :return: an array of strings
     """
-    return os.listdir(start.DATA_FOLDER)
+    return os.listdir(util.DATA_FOLDER)
 
-def generate_id(name):
+def generate_id(peer_name):
     """
     Create new peer (delete data if existing).
     Stores the data on the file system, make generic log, create default sub-feeds and
     add udp_multicast as interface and start it (listen/read loops).
     Only trusted peer is self
-    :param name: string
+    :param peer_name: string
     :return: an instance of Node
     """
-    return start.generate_id(name)
+    pfx = util.DATA_FOLDER + peer_name
+    ks = keystore.Keystore()
+    pk = ks.new(peer_name)
 
-def fetch_id(name):
+    os.system(f"mkdir -p {pfx}/_blob")
+    os.system(f"mkdir -p {pfx}/_logs")
+    os.system(f"mkdir -p {pfx}/_backed")
+    with open(f"{pfx}/_backed/config.json", "w") as f:
+        f.write(util.json_pp({'name': peer_name,
+                              'rootFeedID': util.hex(pk)}))
+
+    repo = repository.REPO(pfx, lambda feed_id, msg, sig: ks.verify(feed_id, msg, sig))
+    repo.mk_generic_log(pk, packet.PKTTYPE_plain48,
+                        b'log entry 1', lambda msg: ks.sign(pk, msg))
+    root = __start_node(repo, ks, pk, [])
+
+    default = {}
+    for n in ['aliases', 'public', 'apps']:
+        fid = root.ks.new(n)
+        name = bipf.dumps(n)
+        name += bytes(16 - len(name))
+        root.repo.mk_child_log(root.me, root.ks.get_signFct(root.me), fid,
+                               root.ks.get_signFct(fid), name)
+        default[n] = fid
+    return identity.Identity(root, peer_name, default)
+
+def load_identity(peer_name):
     """
     Launch a peer whose data is stored locally
-    :param name: the name of the folder
+    :param peer_name: the name of the folder
     :return: instance of node
     """
-    return start.load_identity(name)
+    pfx = util.DATA_FOLDER + peer_name
+    with open(pfx + '/_backed/config.json') as f:
+        cfg = json.load(f)
+    me = util.fromhex(cfg['rootFeedID'])
+    ks = keystore.Keystore()
+    ks.load(pfx + '/_backed/' + cfg['rootFeedID'])
+
+    repo = repository.REPO(pfx, lambda feed_id, sig, msg: ks.verify(feed_id, sig, msg))
+    root = __start_node(repo, ks, me, [])
+    log = root.repo.get_log(me)
+    default = {}
+    for i in range(len(log) + 1):
+        pkt = log[i]
+        if pkt.typ[0] == packet.PKTTYPE_mkchild:
+            fid = pkt.payload[:32]
+            log_name = bipf.loads(pkt.payload[32:])
+            default[log_name] = fid
+    return identity.Identity(root, peer_name, default)
+
+def __start_node(repo, ks, me, peer_list):
+    faces = [io.UDP_MULTICAST(('224.1.1.1', 5000))]
+    nd = node.NODE(faces, ks, repo, me, peer_list)
+    nd.start()
+    return nd
 
 if __name__ == "__main__":
+    dbg(GRE, f"Exc: {locals()['__builtins__']}")
+    bin_key = util.fromhex('da5066b203a02b2c1c200f9d9e6fa096058bfa01d0aef146d3856388964df56d')
+    bin_key2 = util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d')
+    bin_key3 = util.fromhex('5920e93bd6ebbaa57a3a571d3bc1eeb850f4948fde07e08bcd25ce49820978aa')
     # erase_all()
     # peer = generate_id("Charlie")
     peer = load_identity("Charlie")
-    peer.follow(util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Paul")
-    peer.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "John")
-    peer.unfollow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'))
+    dbg(BLU, f"HERE: {peer.launch_app('chess')}")
+    app = peer.open_session(bin_key)
+    app.create_inst(bin_key3, bin_key, "Hello World")
+    dbg(GRE, f"INST: {app.instances}")
 
-    dbg(BLU, f"{peer.directory['aliases']}")
+    # peer.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fa096058bfa01d0aef146d3856388964df56d'), "Kaci")
+
+    # dbg(BLU, f"{peer.directory['aliases']}")
+    # peer.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Kaci")
+    # peer.follow(util.fromhex('da5066b203a02b2cabc00f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Peter")
     # dbg(GRE, util.hex(peer._node.peers[0]))
-    # dbg(BLU, f"{[util.hex(v) for k, v in peer.directory['aliases'].items()]}")
+    # peer.unfollow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'))
+    #
+    # appID = util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d')
+    # appID2 = util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d')
+    # appID3 = util.fromhex('da5066b203a02b2c1c2012345e6fb096058bfa01d0aef146d3856388964df56d')
+    #
+    # dbg(BLU, f"{peer.directory['apps']}")
+    #
+    # # if not peer.has_app('chess'):
+    # dbg(MAG, f"{peer.add_app('chess', appID)}")
+    # dbg(MAG, f"{peer.add_app('tictactoe', appID3)}")
+    # # if not peer.has_app('chat'):
+    # dbg(MAG, f"{peer.add_app('chat', appID2)}")
+    # # dbg(MAG, f"{peer.launch_app('chat')}")
+    # # dbg(MAG, f"Delete: {peer.delete_app('chess1', appID)}")
+    # dbg(GRE, f"{peer.directory['apps']}")
+    # dbg(MAG, f"Delete: {peer.delete_app('chess', appID2)}")
+    # dbg(GRE, f"{peer.directory['apps']}")
+    # dbg(MAG, f"Delete: {peer.delete_app('tetris', appID)}")
+    # dbg(GRE, f"{peer.directory['apps']}")
+    # dbg(MAG, f"Delete: {peer.delete_app('chat', appID2)}")
+    # # peer.request_latest()
+    #
+    # dbg(GRE, f"{peer.directory['apps']}")
+    # exit(0)
 
     # ids = list_identities()
     # # i = input(f"Choose an identity to open (write its index): {ids} ")
