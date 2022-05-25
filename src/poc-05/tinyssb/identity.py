@@ -59,23 +59,20 @@ class Identity:
         """
         # self.directory['aliases'][alias] = "abc"
         if self.directory['aliases'].get(alias):
-            dbg(RED, f"Follow: alias {alias} already exists.")
-            return False  # alias already taken
+            raise AlreadyUsedTinyException(f"Follow: alias {alias} already exists.")
         for key, value in self.directory['aliases'].items():
             if value == public_key:
-                dbg(RED, f"Follow: public key is already in contact list.")
-                return False  # public key already in contacts
+                raise AlreadyUsedTinyException(f"Public key is already in contact list.")
         self.directory['aliases'][alias] = public_key
 
         encoded_alias = bipf.dumps(alias)
-        assert len(encoded_alias) <= 16
+        if len(encoded_alias) > 16:
+            raise TooLongTinyException(f"Alias {alias} is too long")
         buffer = public_key + encoded_alias + bytes(16 - len(encoded_alias))
         dbg(MAG, f"Buffer: 16 >= {len(encoded_alias)}; 48 == {len(buffer)}; name = {bipf.loads(buffer[32:])}")
         self._node.write_plain_48B(self.aliases.fid, buffer)
         self._node.peers.append(public_key)
-        # pk = util.hex(public_key)
-        # start.follow(self._node, public_key, alias)
-        return True
+        self.sync()
 
     def unfollow(self, public_key):
         """
@@ -89,16 +86,22 @@ class Identity:
                 self._node.write_plain_48B(self.aliases.fid, bytes(16) + public_key)
                 self._node.peers.remove(public_key)
                 dbg(GRE, f"Unfollow: contact was deleted from contact list.")
-                return True  # public key already in contacts
-        dbg(RED, f"Unfollow: contact was not found in contact list.")
-        return False
+                return
+        raise NotFoundTinyException("Contact not deleted: not found in contact list.")
 
     def launch_app(self, app_name):
         key = self.directory['apps'][app_name]
         self.__current_feed = key
         # TODO loop to request new data ?
 
-    def add_app(self, app_name):
+    def add_app(self, app_name, appID):
+        """
+        :param app_name: a (locally) unique name
+        :param appID: a (globally) unique 32 bytes ID
+        """
+        if self.directory['apps'].get(app_name) is not None:
+            raise AlreadyUsedTinyException(f"App {app_name} is already used")
+
         apps_log_fid = self.apps.fid
         fid = self._node.ks.new(app_name)
         an = cbor2.dumps(app_name)
@@ -147,8 +150,11 @@ class Identity:
         :param msg: bytes array
         :bug: should send blob if too long
         """
-        for sess in self.__current_sessions:
-            sess.write_48B(cbor2.dumps([msg]))
+        app = self.directory['apps'].get(app_name)
+        if app is None:
+            raise NotFoundTinyException(f"App {app_name} does not exist (already deleted?)")
+        if appID != app['appID']:
+            raise TinyException(f"AppID do not match '{app_name}'")
 
     def _send_blob(self, msg):
         for sess in self.__current_sessions:
