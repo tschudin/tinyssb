@@ -97,6 +97,8 @@ def __start_node(repo, ks, me, peer_list):
     return nd
 
 if __name__ == "__main__":
+    # for i in range(10):
+    #     dbg(YEL, util.hex(generate_id("C" + str(i)).nd.me))
     dbg(GRE, f"Exc: {locals()['__builtins__']}")
     bin_key = util.fromhex('da5066b203a02b2c1c200f9d9e6fa096058bfa01d0aef146d3856388964df56d')
     bin_key2 = util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d')
@@ -114,7 +116,7 @@ if __name__ == "__main__":
     # dbg(BLU, f"{peer.directory['aliases']}")
     # peer.follow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Kaci")
     # peer.follow(util.fromhex('da5066b203a02b2cabc00f9d9e6fb096058bfa01d0aef146d3856388964df56d'), "Peter")
-    # dbg(GRE, util.hex(peer._node.peers[0]))
+    # dbg(GRE, util.hex(peer.nd.peers[0]))
     # peer.unfollow(util.fromhex('da5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d'))
     #
     # appID = util.fromhex('ca5066b203a02b2c1c200f9d9e6fb096058bfa01d0aef146d3856388964df56d')
@@ -185,8 +187,8 @@ if __name__ == "__main__":
     # # start.write_bipf(peer, {'set': {'Chark': peer.me}}, peer.me)
     # # start.read_bipf(peer.repo, peer.me)
     #
-    # peer._node.ks.dump(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer._node.me))
-    # peer._node.ks.load(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer._node.me))
+    # peer.nd.ks.dump(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer.nd.me))
+    # peer.nd.ks.load(start.DATA_FOLDER + "Charlie" + "/_backed/" + util.hex(peer.nd.me))
 
     """
     # nd = load_identity("Charlie")
@@ -242,4 +244,16 @@ if __name__ == "__main__":
             send(s, cmd)
     close(local_peer, my_name)
     pass
+    
+    1e032749b2414f9a424772e78d7cbe1fef1fea3464188e907c29fcf31eed52e1
+    747da564ff00bf71684bf58775212248c354757b43d2fd5db52dcbc292537c04
+    f23df21ca47b3666467222b1037af24162f231f5bb3559822336510af4fae8ed
+    b1b64e45bc892ebbe95e0a355a197d967f8389f0426f0056029b375e2e3daf1b
+    
+    e523a5d864aba515518b711d3bfff3b9052a54d69c82d91d7eb31aa50f0ead70
+    0bff3d95af22c60bd817e772fb7fcdcf1d9f9e736e676cc8bc1db21d3bb20f7b
+    910530b3d475078bb8884f15f1c90f5dff559c7ea321f53ceb32f7f2504829ab
+    6a7599019df4b5bf09781b6a3653946c278a5cdc236ea60d917ede9eedcf714d
+    0df3c2a26ce89da05e524212b3202aef8ff07ad5912ca5ecf9920236046c89d1
+    bd89ed16cf6802b9eb3346f1cf4dc519453c3db6f59e0d1c21cdd06811691db1
 """

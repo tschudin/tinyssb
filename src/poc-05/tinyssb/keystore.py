@@ -8,11 +8,11 @@ from collections import OrderedDict
 import pure25519
 import sys
 
-from tinyssb import util
+from . import util
 
 # ----------------------------------------------------------------------
 
-class Keystore():
+class Keystore:
 
     def __init__(self, cfg={}):
         self.kv = OrderedDict()

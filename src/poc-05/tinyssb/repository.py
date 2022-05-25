@@ -23,9 +23,8 @@ logs: see end of this file for a description of the log file format,
 
 import hashlib
 import os
-import sys
 
-from tinyssb import packet, util
+from . import packet, util
 from tinyssb.dbg import *
 from .dbg import *
 
@@ -204,6 +203,9 @@ class LOG:
         # self.fn = fn
         self.verify_fct = verify_signature_fct
         self.file = open(fileName, 'rb+')
+        # dbg(BLU, f"READ:\n{util.hex(self.file.read())}")
+        # for i in range(4):
+        #     dbg(BLU, f"\n{i}: {util.hex(self.file.read(120))}")
         self.file.seek(0)
         hdr = self.file.read(120)
         hdr = hdr[4:]  # first 12B unused

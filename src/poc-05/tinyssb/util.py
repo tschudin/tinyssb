@@ -16,6 +16,8 @@ else:
 
 b64 = lambda b: base64.b64encode(b).decode()
 
+DATA_FOLDER = './data/'
+
 # wrote our own json.dumps ..
 # because micropython's json.dumps() does not know how to pretty print
 def json_pp(d, indent=''):

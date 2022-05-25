@@ -12,6 +12,8 @@ PKTTYPE_iscontn    = 0x03     # metafeed information, only in genesis block
 PKTTYPE_mkchild    = 0x04     # metafeed information
 PKTTYPE_contdas    = 0x05     # metafeed information
 PKTTYPE_acknldg    = 0x06     # proof of having seen some fid:seq:sig entry
+PKTTYPE_set        = 0x07     # set a value
+PKTTYPE_delete     = 0x08     # proof of having seen some fid:seq:sig entry
 
 # see end of this document for the payload content of types 0x02-0x05
 

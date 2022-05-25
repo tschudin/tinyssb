@@ -7,7 +7,7 @@
 import hashlib
 import _thread
 
-from . import io, packet, repository, util
+from . import io, packet, util
 from .dbg import *
 
 
@@ -19,7 +19,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.repo  = repo
         self.dmxt  = {}    # DMX  ~ dmx_tuple  DMX filter bank
         self.blbt  = {}    # hptr ~ blob_obj  blob filter bank
-        self.users = {}    # fid  ~ user_obj  the users I serve (soc graph)
+        self.users = {}    # Unused fid  ~ user_obj  the users I serve (soc graph)
         self.peers = peerlst    # fid other nodes
         self.timers = []
         self.comm = {}
@@ -74,6 +74,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
         """
         # all tSSB packet reception logic goes here!
         # dbg(GRE, "<< buf", len(buf), util.hex(buf[:20]), "...")
+        if len(buf) == 120:
+            dbg(GRE, "<< buf", len(buf))#, util.hex(buf[10:20]), "...")
+            dbg(RED, "<< is", len(buf))#, "...", buf[:7] in self.dmxt)
+            # for d in self.dmxt:
+                # print(RED, f"{d}: {len(d)}\n{buf[:7]}\n")
         # if neigh.src:
         #     print("   src", neigh.src)
         '''
@@ -329,6 +334,10 @@ class NODE:  # a node in the tinySSB forwarding fabric
         # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} / me {util.hex(self.me)[:20]}...")
         self.arm_dmx(want_dmx,
                      lambda buf, n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {util.hex(self.me)[:20]}")
+
+        # dbg(YEL, "<< is", "...", want_dmx in self.dmxt)
+        # for d in self.dmxt:
+        #     print(YEL, f"{d}: {len(d)}\n{want_dmx}\n")
 
         # prepare to serve blob requests
         blob_dmx = packet._dmx(b'blobs')
