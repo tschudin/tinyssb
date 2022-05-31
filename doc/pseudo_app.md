@@ -16,7 +16,7 @@ import tinyssb as tiny
 ids = tiny.list_identities()
 i = input(f"Choose an identity to open (write its index): {ids} ")
 identity = tiny.fetch_id(ids[i])
-rd = identity.get_root_directory()
+rd = identity.directory
 ad = rd['apps']
 chess_games = ad['chess']
 ui = ...
@@ -35,7 +35,31 @@ while True:
         break
     else:
         session.send(msg)
+```
 
+31.05:
+```python
+import tinyssb as tiny
+
+# List ids that I can load (only the names associated to it)
+ids = tiny.list_identities()
+i = input(f"Choose an identity to open (write its index): {ids} ")
+identity = tiny.fetch_id(ids[i])
+dir = identity.directory
+print(dir['apps'])  # Output: (['chess'], ['tetris'])
+app = identity.launch_app('chess')
+i = input(f"Choose a game instance: {app.instances}")  
+# Output: { '0': { ... }, '1': { ... } ... }
+
+app.start(i)
+app.set_callback(lambda received: print(received))
+while True:
+    msg = ui.input("> ")
+    if msg == 'quit':
+        identity.sync()
+        break
+    else:
+        session.send(msg)
 ```
 
 ## 'Directory'
@@ -47,8 +71,12 @@ key):
 ```python
 directory = {
     'apps': {
-        'chess': '`bin_key`',  # personal keys only
-        'chat': '`bin_key`'
+        'chess': { 'fid':'`bin_key`',
+                   'appID': '`bin_key`'
+        },
+        'chat': { 'fid':'`bin_key`',
+                  'appID': '`bin_key`'
+        },
     },
     'alias': {
         'Chiara': '`bin_key`',
