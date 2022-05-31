@@ -3,7 +3,7 @@ import os
 
 import bipf
 
-from . import session, util, packet
+from . import util, packet, application
 from .exception import *
 from .dbg import *
 
@@ -17,7 +17,6 @@ __id__ = [
     'launch_app',
     'add_app',
     'delete_app',
-    'open_session',
     'send',
     'request_latest',
     'add_interface',
@@ -30,17 +29,12 @@ class Identity:
         self.nd = root
         self.name = name
 
-        self.aliases = self.nd.repo.get_log(default_logs['aliases'])
-        self.public = self.nd.repo.get_log(default_logs['public'])
-        self.apps = self.nd.repo.get_log(default_logs['apps'])
+        self.aliases = default_logs['aliases']
+        self.public = default_logs['public']
+        self.apps = default_logs['apps']
         self.directory = {'apps': {}, 'aliases': {}}
 
-        # the (local) feed I am currently writing to
-        self.__current_feed = default_logs['public']
         self.__current_app = None
-        # allows for an app with more than one peer
-        # TODO delete
-        self.__current_sessions = []
 
         self.__load_contacts()
         self.__load_apps()
@@ -72,7 +66,7 @@ class Identity:
             raise TooLongTinyException(f"Alias {alias} is too long")
         buffer = public_key + encoded_alias + bytes(16 - len(encoded_alias))
         dbg(MAG, f"Buffer: 16 >= {len(encoded_alias)}; 48 == {len(buffer)}; name = {bipf.loads(buffer[32:])}")
-        self.nd.write_typed_48B(self.aliases.fid, packet.PKTTYPE_set, buffer)
+        self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_set, buffer)
         self.nd.peers.append(public_key)
         self.sync()
 
@@ -85,7 +79,7 @@ class Identity:
         for key, value in self.directory['aliases'].items():
             if value == public_key:
                 self.directory['aliases'].pop(key)
-                self.nd.write_typed_48B(self.aliases.fid, packet.PKTTYPE_delete,bytes(16)+public_key)
+                self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_delete, bytes(16)+public_key)
                 self.nd.peers.remove(public_key)
                 dbg(GRE, f"Unfollow: contact was deleted from contact list.")
                 return
@@ -94,10 +88,9 @@ class Identity:
     def launch_app(self, app_name):
         if self.directory['apps'].get(app_name) is None:
             raise NotFoundTinyException(f"App {app_name} not found.")
-        self.__current_feed = self.directory['apps'][app_name]['fid']
-        log = self.nd.repo.get_log(self.__current_feed)
-        self.__current_app = session.Application(self.nd, log)
-        return self.__current_app.instances
+        log = self.nd.repo.get_log(self.directory['apps'][app_name]['fid'])
+        self.__current_app = application.Application(self.nd, log)
+        return self.__current_app
         # TODO loop to request new data ?
 
     def add_app(self, app_name, appID):
@@ -108,62 +101,26 @@ class Identity:
         if self.directory['apps'].get(app_name) is not None:
             raise AlreadyUsedTinyException(f"App {app_name} is already used")
 
-        apps_log_fid = self.apps.fid
         fid = self.nd.ks.new(app_name)
         an = bipf.dumps(app_name)
         an += bytes(16 - len(an))
     
         for app in self.directory['apps']:
             if self.directory['apps'][app]['appID'] == appID:
-                self.nd.write_typed_48B(apps_log_fid, packet.PKTTYPE_set,appID+an)
+                self.nd.write_typed_48B(self.apps, packet.PKTTYPE_set, appID + an)
                 entry = self.directory['apps'].pop(app)
                 self.directory['apps'][app_name] = entry
                 return None # changed app_name
 
-        self.nd.repo.mk_child_log(apps_log_fid,
-                                     self.nd.ks.get_signFct(apps_log_fid), fid,
-                                     self.nd.ks.get_signFct(fid), an)
-        self.nd.write_typed_48B(apps_log_fid, packet.PKTTYPE_set,appID+an)
-        self.directory['apps'][app_name] = { 'fid':fid, 'appID': appID }
-        self.__current_feed = fid
-        log = self.nd.repo.get_log(self.__current_feed)
-        self.__current_app=session.Application(self.nd,log)
+        self.nd.repo.mk_child_log(self.apps,
+                                  self.nd.ks.get_signFct(self.apps), fid,
+                                  self.nd.ks.get_signFct(fid), an)
+        self.nd.write_typed_48B(self.apps, packet.PKTTYPE_set, appID + an)
+        self.directory['apps'][app_name] = { 'fid': fid, 'appID': appID }
+        log = self.nd.repo.get_log(fid)
+        self.__current_app = application.Application(self.nd, log)
         self.sync()
-        return self.__current_app.instances
-
-    def open_session(self, remote_session_id, fct=None, window_length=0):
-        """
-        Open a game or a session of an app.
-        Our job is to keep track of the data to send, receive and write
-        to the disc.
-        It should accept a game_id (content in the app sub-feed), look for the
-        participant(s), open a session with them (i.e. try to fetch data from their
-        logs) and start an instance of session.Session
-
-        :param remote_session_id: fid to subscribe to
-        :param window_length: number of entries in a log
-        :param fct: callback function
-        :bug: buggy
-        FIXME exchange public key for app sub-feed
-        """
-        dbg(GRE,
-            f"Start session from \n{self.__current_feed} to \n{remote_session_id}\nwith"
-            f" length = {window_length}")
-        # Get log, create it if needed
-
-        # remote_id_log = self.nd.repo.get_log(remote_session_id)
-        # assert remote_id_log is not None
-        # dbg(GRE, f"{self.__current_feed} + {type(self.__current_feed)}")
-        # self.nd.repo.get_log(self.__current_feed).subscription += 1
-
-        # Use remote's main feed
-        log = self.nd.repo.get_log(self.__current_feed)
-        app = session.Application(self.nd, log, remote_session_id)
-        # sess.start(fct)
-        # if window_length > 0:
-        #     app.window_length = window_length
-        self.__current_sessions.append(app)
-        return app
+        return self.__current_app
 
     def delete_app(self, app_name, appID):
         """
@@ -176,36 +133,22 @@ class Identity:
         if appID != app['appID']:
             raise TinyException(f"AppID do not match '{app_name}'")
 
-        apps_log_fid = self.apps.fid
         an = bipf.dumps(app_name)
         an += bytes(16-len(an))
         old_log = self.nd.repo.get_log(app['fid'])
         old_log.write_eof(lambda msg: self.nd.ks.sign(app['fid'], msg))
 
-        self.nd.write_typed_48B(apps_log_fid, packet.PKTTYPE_delete,appID+an)
+        self.nd.write_typed_48B(self.apps, packet.PKTTYPE_delete, appID + an)
         self.directory['apps'].pop(app_name)
         self.nd.ks.remove(app['fid'])
 
-    def send(self, msg):
+    def write_public(self, msg):
         if len(msg) > 48:
             dbg(GRE, f"Sending Blob!!!")
-            self._send_blob(msg)
+            self.nd.write_blob_chain(self.public, bipf.dumps(msg))
         else:
             dbg(GRE, f"Sending Log")
-            self._send_log(msg)
-
-    def _send_log(self, msg):
-        """
-        Send a log message, that must be less than 48B
-        :param msg: bytes array
-        :bug: should send blob if too long
-        """
-        for sess in self.__current_sessions:
-            sess.write_48B(bipf.dumps([msg]))
-
-    def _send_blob(self, msg):
-        for sess in self.__current_sessions:
-            sess.write_blob_chain(bipf.dumps(msg))
+            self.nd.write_plain_48B(self.public, bipf.dumps(msg))
 
     def request_latest(self, friend_id=None, comment="api"):
         """
@@ -244,10 +187,10 @@ class Identity:
     def __load_apps(self):
         """
         Read 'apps' feed and fill the corresponding dictionary.
-        app_name is the only TODO
         """
-        for i in range(1, len(self.apps)+1):
-            pkt = self.apps[i]
+        apps_feed = self.nd.repo.get_log(self.apps)
+        for i in range(1, len(apps_feed)+1):
+            pkt = apps_feed[i]
             if pkt.typ[0] == packet.PKTTYPE_mkchild:
                 fid = pkt.payload[:32]
                 app_name = bipf.loads(pkt.payload[32:])
@@ -271,9 +214,6 @@ class Identity:
                             self.directory['apps'][app_name] = {'fid': a.get('fid'),
                                                                 'appID': appID}
                             self.directory['apps'].pop(a)
-                #         continue
-                # assert self.directory['apps'].get(app_name) is not None
-                # self.directory['apps'][app_name]['appID'] = appID
 
             elif pkt.typ[0] == packet.PKTTYPE_delete:
                 appID = pkt.payload[:32]
@@ -289,8 +229,9 @@ class Identity:
         Read 'aliases' feed and fill the contact dictionary.
         :return: nothing
         """
-        for i in range(1, len(self.aliases)+1):
-            pkt = self.aliases[i]
+        aliases_feed = self.nd.repo.get_log(self.aliases)
+        for i in range(1, len(aliases_feed)+1):
+            pkt = aliases_feed[i]
             if pkt.typ[0] == packet.PKTTYPE_delete:
                 fid = pkt.payload[16:]
                 to_delete = []
@@ -302,6 +243,5 @@ class Identity:
             if pkt.typ[0] == packet.PKTTYPE_set:
                 fid = pkt.payload[:32]
                 name = bipf.loads(pkt.payload[32:])
-                # dbg(GRE, f"{i}: {name}: {fid}; {self.directory['aliases'].get(name)}")
                 assert self.directory['aliases'].get(name) is None
                 self.directory['aliases'][name] = fid

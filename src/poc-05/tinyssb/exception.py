@@ -17,6 +17,10 @@ class NotFoundTinyException(TinyException):
     def __init__(self, value):
         self.value = value
 
+class UnexpectedPacketTinyException(TinyException):
+    def __init__(self, value):
+        self.value = value
+
 if __name__ == "__main__":
     try:
         raise AlreadyUsedTinyException("Test")

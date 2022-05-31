@@ -2,14 +2,14 @@
 
 # tinyssb/session.py
 # 2022-04-14 <christian.tschudin@unibas.ch>
-import bipf
+
 from . import packet, util
 from .dbg import *
 from .exception import UnexpectedPacketTinyException
 
 class SlidingWindow:
 
-    def __init__(self, nd, id_number, local_fid, remote_fid):
+    def __init__(self, nd, id_number, local_fid, remote_fid, callback=None):
         self.nd = nd
         self.id_number = id_number
         self.lfd = nd.repo.get_log(local_fid)
@@ -19,18 +19,15 @@ class SlidingWindow:
         if remote_fid is not None:
             self.rfd = nd.repo.get_log(remote_fid)
         self.pfd = None # pending feed (oldest unacked cont feed), test needed
-        self.upcall = None # client(s), currently we ignore ports
+        self.callback = None # client(s), currently we ignore ports
         self.started = False
-        self.window_length = 7
+        self.window_length = 100
 
     def add_remote(self, remote_fid):
         self.rfd = self.nd.repo.get_log(remote_fid)
 
-    def register(self, port, client):
-        self.upcall = lambda buf: client.upcall(buf)
-
-    def deregister(self, port):
-        self.upcall = None
+    def set_callback(self, callback):
+        self.callback = callback
 
     def write_plain_48B(self, buf48):
         self.write_typed_48B(packet.PKTTYPE_plain48, buf48)
@@ -68,13 +65,12 @@ class SlidingWindow:
 
     def _process(self, pkt):
         # print("SESS _processing")
-        if pkt.typ[0] == [packet.PKTTYPE_contdas]:
+        if pkt.typ[0] == packet.PKTTYPE_contdas:
             # self.rfd.remove(pkt.fid)
             # self.rfd[pkt.payload[:32]] = self.nd.repo.get_log(pkt.payload[:32])
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
             # self.nd.repo.del_log(pkt.fid)
-            return
-        if pkt.typ[0] == packet.PKTTYPE_iscontn:
+        elif pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
             # should verify proof
             oldFID = pkt.payload[:32]
@@ -91,10 +87,9 @@ class SlidingWindow:
             msg = oldFID # + ??
             self.write_typed_48B(packet.PKTTYPE_acknldg,
                                  msg + bytes(48-len(msg)))
-            return
-        if pkt.typ[0] == packet.PKTTYPE_acknldg:
+        elif pkt.typ[0] == packet.PKTTYPE_acknldg:
             dbg(GRE, f"SESS: processing ack")
-            if self.pfd == None:
+            if self.pfd is None:
                 print("no log to remove")
                 return
             dbg(GRE, f"SESS: removing feed {util.hex(self.pfd)[:20]}..")
@@ -106,21 +101,20 @@ class SlidingWindow:
             self.nd.repo.del_log(f.fid)
             self.nd.ks.remove(f.fid)
             del f
-            return
-        if pkt.typ[0] == packet.PKTTYPE_plain48:
-            # print("sliding: doing upcall")
-            if self.upcall != None:
-                self.upcall(pkt.payload)
-        
-    def set_upcall(self, upcall):
-        self.upcall = upcall
+        elif pkt.typ[0] == packet.PKTTYPE_chain20:
+            pkt.undo_chain(lambda h: self.nd.repo.fetch_blob(h))
+            self.callback(pkt.chain_content)
+        elif pkt.typ[0] == packet.PKTTYPE_ischild:
+            pass
+        elif pkt.typ[0] == packet.PKTTYPE_mkchild:
+            raise UnexpectedPacketTinyException
+        else:  # plain, set or delete
+            self.callback(pkt.payload)
 
-    def start(self, callback=None):
+    def start(self):
         # does upcalls for all content received so far,
         # including acknowledging (and indirectly free) segments
-        # FIXME: what about child logs?
         i = 1
-        # for feed in self.rfd:
         while i <= len(self.rfd):
             pkt = self.rfd[i]
             self._process(pkt)
@@ -128,10 +122,7 @@ class SlidingWindow:
                 i = 1  # restart loop for continuation segment
             else:
                 i += 1
-        if callback is None:
-            # FIXME callback should be called AS WELL AS on_incoming
-            callback = self.on_incoming
-        self.rfd.set_append_cb(callback)
+        self.rfd.set_append_cb(self.on_incoming)
         dbg(RED, "sess has started (catchup done, switching to live processing)")
         self.started = True
 
