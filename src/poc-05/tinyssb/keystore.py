@@ -3,18 +3,19 @@
 # tinyssb/keystore.py
 # 2022-04-09 <christian.tschudin@unibas.ch>
 
-import bipf
 from collections import OrderedDict
-import pure25519
-import sys
 
+import bipf
+import pure25519
 from . import util
 
 # ----------------------------------------------------------------------
 
 class Keystore:
 
-    def __init__(self, cfg={}):
+    def __init__(self, cfg=None):
+        if cfg is None:
+            cfg = {}  # default arguments are evaluated only once, behaves as a global var
         self.kv = OrderedDict()
         for pk,d in cfg.items():
             self.kv[util.fromhex(pk)] = [util.fromhex(d['sk']), d['name']]

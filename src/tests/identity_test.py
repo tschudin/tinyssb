@@ -2,7 +2,7 @@
 # 2022-05-25 <et.mettaz@unibas.ch>
 import unittest
 
-import api
+import tinyssb as tiny
 from tinyssb import util, application
 from tinyssb.exception import *
 
@@ -13,41 +13,40 @@ class IdentityTestCase(unittest.TestCase):
 
     @classmethod
     def setUp(cls):
-        api.erase_all()
-        cls.peer = api.generate_id("Charlie")
+        tiny.erase_all()
+        cls.peer = tiny.generate_id("Charlie")
 
     def test_follow(self):
-        self.peer.follow(self.key1,"Petra")
+        self.peer.follow(self.key1, "Petra")
 
         with self.assertRaises(AlreadyUsedTinyException):
-            self.peer.follow(self.key1,"Ellen")
+            self.peer.follow(self.key1, "Ellen")
         with self.assertRaises(AlreadyUsedTinyException):
-            self.peer.follow(self.key2,"Petra")
+            self.peer.follow(self.key2, "Petra")
 
     def test_list_contacts(self):
-        self.peer.follow(self.key1,"Petra")
-        self.peer.follow(self.key2,"Alejandra")
-        self.assertEqual(self.peer.list_contacts(),
-            { 'Petra': self.key1, 'Alejandra': self.key2 })
+        self.peer.follow(self.key1, "Petra")
+        self.peer.follow(self.key2, "Alejandra")
+        self.assertEqual(self.peer.list_contacts(), { 'Petra': self.key1, 'Alejandra': self.key2 })
 
     def test_unfollow(self):
-        self.peer.follow(self.key1,"Petra")
+        self.peer.follow(self.key1, "Petra")
         self.assertDictEqual(self.peer.list_contacts(), { "Petra": self.key1 })
         self.peer.unfollow(self.key1)
-        self.assertEqual(len(self.peer.list_contacts()),0)
+        self.assertEqual(len(self.peer.list_contacts()), 0)
 
         with self.assertRaises(NotFoundTinyException):
             self.peer.unfollow(self.key1)
-        self.peer.follow(self.key1,"Petra")
+        self.peer.follow(self.key1, "Petra")
         with self.assertRaises(NotFoundTinyException):
             self.peer.unfollow(self.key2)
 
     def test_load_contacts(self):
-        self.peer.follow(self.key1,"Petra")
-        self.peer.follow(self.key2,"Alejandra")
+        self.peer.follow(self.key1, "Petra")
+        self.peer.follow(self.key2, "Alejandra")
         self.peer.follow(self.key3, "Richard")
         self.peer.unfollow(self.key1)
-        peer2 = api.load_identity("Charlie")
+        peer2 = tiny.load_identity("Charlie")
         self.assertEqual(peer2.list_contacts(), { 'Alejandra': self.key2, 'Richard': self.key3 })
 
     def test_add_app(self):
@@ -82,10 +81,10 @@ class IdentityTestCase(unittest.TestCase):
         with self.assertRaises(NotFoundTinyException):
             self.peer.delete_app("chat", self.key1)
         with self.assertRaises(TinyException):
-            self.peer.delete_app("chess",self.key2)
+            self.peer.delete_app("chess", self.key2)
         self.assertEqual(len(self.peer.directory['apps']), 1)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     unittest.main()
 
 # eof

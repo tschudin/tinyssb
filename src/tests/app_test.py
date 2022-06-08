@@ -2,11 +2,10 @@
 # 2022-05-25 <et.mettaz@unibas.ch>
 import unittest
 
-import api
+import tinyssb as tiny
 from tinyssb import util
 
 class AppTestCase(unittest.TestCase):
-
     key1 = util.fromhex('1e032749b2414f9a424772e78d7cbe1fef1fea3464188e907c29fcf31eed52e1')
     key2 = util.fromhex('747da564ff00bf71684bf58775212248c354757b43d2fd5db52dcbc292537c04')
     key3 = util.fromhex('f23df21ca47b3666467222b1037af24162f231f5bb3559822336510af4fae8ed')
@@ -16,31 +15,29 @@ class AppTestCase(unittest.TestCase):
 
     @classmethod
     def setUp(cls):
-        api.erase_all()
-        peer = api.generate_id("Charlie")
+        tiny.erase_all()
+        peer = tiny.generate_id("Charlie")
         cls.app = peer.add_app('chess', cls.key1)
 
     def test_void_app(self):
-        self.assertEqual({}, self.app.instances)
+        self.assertEqual({ }, self.app.instances)
 
     def test_create_inst(self):
         self.app.create_inst(None, self.key1)
-        expected = {'0': {'il': self.app.instances.get('0').get('il'),
-                          'w': self.key1}}
+        expected = { '0': { 'il': self.app.instances.get('0').get('il'), 'w': self.key1 } }
         expected['0']['l'] = expected['0']['il']
         self.assertEqual(expected, self.app.instances)
-        
+
         self.app.create_inst(self.key2, self.key3, "An arbitrary long string that "
-                                                   "can be use to describe the game")
-        expected['1'] = {'il': self.app.instances.get('1').get('il'),
-                         'ir': self.key2, 'r': self.key2, 'w': self.key3,
-                         'n': "An arbitrary long string that can be use to describe the game"}
+                                                   "can be used to describe the game")
+        expected['1'] = { 'il': self.app.instances.get('1').get('il'), 'ir': self.key2, 'r': self.key2, 'w': self.key3,
+            'n': "An arbitrary long string that can be used to describe the game" }
         expected['1']['l'] = expected['1']['il']
         self.assertEqual(expected, self.app.instances)
 
     def test_add_remote(self):
         self.app.create_inst(None, self.key1)
-        expected = {'0': {'il':self.app.instances.get('0').get('il'), 'w':self.key1}}
+        expected = { '0': { 'il': self.app.instances.get('0').get('il'), 'w': self.key1 } }
         expected['0']['l'] = expected['0']['il']
         self.assertEqual(expected, self.app.instances)
 
@@ -51,35 +48,47 @@ class AppTestCase(unittest.TestCase):
 
     def test_update(self):
         self.app.create_inst(self.key1, self.key2)
-        expected = {'0': {'il': self.app.instances.get('0').get('il'),
-                          'ir': self.key1, 'r': self.key1, 'w': self.key2}}
+        expected = {
+            '0': { 'il': self.app.instances.get('0').get('il'), 'ir': self.key1, 'r': self.key1, 'w': self.key2 } }
         expected['0']['l'] = expected['0']['il']
         self.assertEqual(expected, self.app.instances)
 
-        self.app.update_game('0', self.key3, None, self.key4, "A name")
+        self.app.update_inst('0', None, self.key4, "A name", self.key3)
         expected['0']['l'] = self.key3
         expected['0']['w'] = self.key4
         expected['0']['n'] = "A name"
         self.assertEqual(expected, self.app.instances)
 
-        self.app.update_game('0', None, self.key5, self.key6, None)
+        self.app.update_inst('0', self.key5, self.key6)
         expected['0']['r'] = self.key5
         expected['0']['w'] = self.key6
         self.assertEqual(expected, self.app.instances)
 
     def test_load(self):
         self.app.create_inst(self.key1, self.key2)
-        self.app.update_game('0', self.key3, None, self.key4, "A name")
-        self.app.update_game('0', None, self.key5, self.key6, None)
+        self.app.update_inst('0', None, self.key4, "A name", self.key3)
+        self.app.update_inst('0', self.key5, self.key6)
 
-        peer = api.load_identity("Charlie")
+        peer = tiny.load_identity("Charlie")
         self.assertIsNotNone(peer.directory['apps']['chess'])
-        expected = {'0': {'il': self.app.instances.get('0').get('il'),
-                          'ir': self.key1, 'l': self.key3, 'r': self.key5,
-                          'w': self.key6, 'n': "A name"}}
+        expected = {
+            '0': { 'il': self.app.instances.get('0').get('il'), 'ir': self.key1, 'l': self.key3, 'r': self.key5,
+                'w': self.key6, 'n': "A name" } }
         self.assertEqual(expected, peer.launch_app("chess").instances)
 
-if __name__=='__main__':
+    def test_delete_inst(self):
+        inst_id = self.app.create_inst(self.key1, self.key2)
+        self.app.update_inst(inst_id, None, self.key4, "A name", self.key3)
+        self.app.update_inst(inst_id, self.key5, self.key6)
+
+        expected = {
+            inst_id: { 'il': self.app.instances.get(inst_id).get('il'), 'ir': self.key1, 'l': self.key3, 'r': self.key5,
+                'w': self.key6, 'n': "A name" } }
+        self.assertEqual(expected, self.app.instances)
+        self.app.delete_inst(inst_id)
+        self.assertIsNone(self.app.instances.get(str(inst_id)))
+
+if __name__ == '__main__':
     unittest.main()
 
 # eof

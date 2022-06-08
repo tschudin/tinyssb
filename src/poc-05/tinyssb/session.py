@@ -9,7 +9,8 @@ from .exception import UnexpectedPacketTinyException
 
 class SlidingWindow:
 
-    def __init__(self, nd, id_number, local_fid, remote_fid, callback=None):
+    def __init__(self, app, nd, id_number, local_fid, remote_fid, callback=None):
+        self.app = app
         self.nd = nd
         self.id_number = id_number
         self.lfd = nd.repo.get_log(local_fid)
@@ -19,7 +20,7 @@ class SlidingWindow:
         if remote_fid is not None:
             self.rfd = nd.repo.get_log(remote_fid)
         self.pfd = None # pending feed (oldest unacked cont feed), test needed
-        self.callback = None # client(s), currently we ignore ports
+        self.callback = callback
         self.started = False
         self.window_length = 100
 
@@ -46,11 +47,12 @@ class SlidingWindow:
             # dbg(GRA, f"-dmx pkt@{util.hex(pkts[0].dmx)} for {util.hex(self.lfd.fid)[:20]}.[{seq}]")
             self.nd.arm_dmx(pkts[0].dmx)
             self.lfd = self.nd.repo.get_log(pkts[1].fid)
-            if self.nd.sess.pfd == None:
+            if self.nd.sess.pfd is None:
                 self.nd.sess.pfd = oldFID
             self.lfdsign = sign2
             dbg(GRA, f"  ... continued as feed {util.hex(self.lfd.fid)[:20]}..")
             self.nd.push(pkts, True)
+            self.app.update_inst(self.id_number, None, None, None, self.lfd.fid)
         self.nd.write_typed_48B(self.lfd.fid, typ, buf48, self.lfdsign)
 
     def write_blob_chain(self, buf):
@@ -63,21 +65,22 @@ class SlidingWindow:
         else:
             print("not started yet")
 
+    def on_close(self):
+        # TODO
+        self.started = False
+        pass
+
     def _process(self, pkt):
         # print("SESS _processing")
         if pkt.typ[0] == packet.PKTTYPE_contdas:
-            # self.rfd.remove(pkt.fid)
-            # self.rfd[pkt.payload[:32]] = self.nd.repo.get_log(pkt.payload[:32])
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
             # self.nd.repo.del_log(pkt.fid)
+            self.app.update_inst(self.id_number, pkt.payload[:32])
         elif pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
             # should verify proof
             oldFID = pkt.payload[:32]
             oldFeed = self.nd.repo.get_log(oldFID)
-            # print(oldFeed.getfront)
-            # oldFeed.getfront[0]
-            # pkt.payload[32:36]
             if not oldFeed.getfront[0] == pkt.payload[32:36]:
                 dbg(RED, f"Continue feed: sequence number doesn't match:"
                          f" {oldFeed.getfront[0]} vs {pkt.payload[32:36]}")
@@ -114,6 +117,8 @@ class SlidingWindow:
     def start(self):
         # does upcalls for all content received so far,
         # including acknowledging (and indirectly free) segments
+        if self.rfd is None:
+            return
         i = 1
         while i <= len(self.rfd):
             pkt = self.rfd[i]
@@ -124,6 +129,9 @@ class SlidingWindow:
                 i += 1
         self.rfd.set_append_cb(self.on_incoming)
         dbg(RED, "sess has started (catchup done, switching to live processing)")
+
+        # Start the loop in io that listens to incoming messages
+        self.nd.start()
         self.started = True
 
 class SlidingWindowClient:

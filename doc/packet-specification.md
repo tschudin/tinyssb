@@ -27,6 +27,8 @@ anymore.
 
 ## Introduction
 
+### Packet format
+
 In contrast with classical SSB, tinyssb makes use of the data stored for
 previous entries to minimise the data sent. For example, we do not send the feed
 identification (ed25519 public key), the entry's sequence number and the hash
@@ -77,6 +79,46 @@ manifested part of log entry           |    algo + type    |
 This process not only spare some bandwidth by sending fewer bytes, but also
 allows us to spare storage as only the bytes sent need to be stored.
 
+### Tree structure
+
+We specify for tinySSB a way to express tree-shaped feed dependencies: a feed
+can have one or more children feeds and can end with an optional continuation
+feed. The parent-child relationship naturally forms a tree, extending it
+vertically. Horizontally, a continuation feed extends a node such that the tree
+shape is kept intact.
+
+```
+                root-feed (.)
+              /              \
+             /                \
+    sub-feed (.1.1)     sub-feed (.2.5) -> sub-feed (.2.5') -> ...
+                               |                 /    \
+                           .2.5.1       .2.5'.1      .2.5'.2
+```
+
+We require that a child node, as well as a continuation node, specify their
+predecessor node which is found either horizontally (if a continuation), or
+vertically (if a child node). The root node has no predecessor, i.e. the
+respective predecessor feed ID is set to 0.
+
+As a result, it is always possible to find the root node of the tree when
+starting from an arbitrary feed X like this:
+
+```python
+def find_root(x):
+    while x.predecessor != 0:
+        x = x.predecessor
+    return x
+```
+
+This is useful, for example, if trust claims are linked to the root node and
+these trust claims should also apply to all dependent nodes.
+
+The predecessor relationship is cryptographically protected such that no loops
+can form: each dependent feed must provide a "birth-certificate" as a proof of
+its status, in its genesis block. This certificate is simply a hash value of the
+log entry's wire format that announces the new dependent feed.
+
 ## Packet Layout
 
 A packet must be 120 bytes long, excluding link- or connexion-specific addition
@@ -96,7 +138,7 @@ _blob_ or _log entries_
 
 ```
 
-<------------------- 120B ------------------->
+      <---------------- 120B ---------------->
 
                     120B ("wire bytes")
       +-------------------..-----------------+
@@ -110,7 +152,7 @@ Blob:
       +--------------------------------------+
           100B                          20B
       +---------------. . .----------+-------+
-      | payload          | padding   | HPTR  | (padding can be 0B)
+      | payload          |  padding  | HPTR  | (padding can be 0B)
       +---------------. . .----------+-------+
 
 Log:    
@@ -238,7 +280,7 @@ We will describe its use in more detail in the section about log packets of type
 ## Log Packet Types
 
 A log entry has a 48 Bytes payload, which content must comply to the
-specification of its type (given by the field `TYP`). We will describe the 7
+specification of its type (given by the field `TYP`). We will describe the 9
 types that are described as of this version of TinySSB.
 
 ### Type 0: Plain Text
@@ -306,68 +348,27 @@ Note that type-0 log entries have a fixed-length 48B payload while type-1 log
 entries can have any length, even from 0 to 48 bytes. When the length is less
 than 28, the ```HPTR1``` field consists of zeros as no blobs are necessary.
 
-## Tree structure for the feeds
+### Tree structure for the feeds
 
 The five following packet types concern the creation and management of
-sub-feeds. We describe their nuts and bolts before specifying their different
-fields.
+sub-feeds.
 
-### Rationale of sub-feeds
+#### Type 4 and 5: Create a sub-feed
 
-We specify for tinySSB a way to express tree-shaped feed dependencies: a feed
-can have one or more children feeds and can end with an optional continuation
-feed. The parent-child relationship naturally forms a tree, extending it
-vertically. Horizontally, a continuation feed extends a node such that the tree
-shape is kept intact.
-
-```
-                root-feed (.)
-              /              \
-             /                \
-    sub-feed (.1.1)     sub-feed (.2.5) -> sub-feed (.2.5') -> ...
-                               |                 /    \
-                           .2.5.1       .2.5'.1      .2.5'.2
-```
-
-We require that a child node, as well as a continuation node, specify their
-predecessor node which is found either horizontally (if a continuation), or
-vertically (if a child node). The root node has no predecessor, i.e. the
-respective predecessor feed ID is set to 0.
-
-As a result, it is always possible to find the root node of the tree when
-starting from an arbitrary feed X like this:
-
-```python
-def find_root(x):
-    while x.predecessor != 0:
-        x = x.predecessor
-    return x
-```
-
-This is useful, for example, if trust claims are linked to the root node and
-these trust claims should also apply to all dependent nodes.
-
-The predecessor relationship is cryptographically protected such that no loops
-can form: each dependent feed must provide a "birth-certificate" as a proof of
-its status, in its genesis block. This certificate is simply a hash value of the
-log entry's wire format that announces the new dependent feed.
-
-### Create a sub-feed
-
-One can declare a new feed by using an entry with type 4 for a child (vertical)
-feed or type 5 for a continued (horizontal) feed. The same format is used (only
-the field `TYP` is different):
+One can declare a new feed by using an entry with type 4 (`0x04`) for a child
+(vertical) feed or type 5 (`0x05`) for a continued (horizontal) feed. The same 
+format is used (only the field `TYP` is different):
 
 ```
 - NFID   :  32 Bytes   ID of the new feed (child or continuation)
 - ____   :  16 Bytes   Not defined (any: timestamp, etc)
 ```
 
-This can happen at any time in a feed, but the entry must be the last one in
-case of a continued feed.
+This can happen at any time in a feed but in
+case of a continued feed, the entry must be the last one.
 
-The new feed can now be created, which first entry must be of type 2 (for a
-child feed) or 3. Again, only the `TYP` field can distinguish them.
+The new feed can now be created, which first entry must be of type 2 (`0x02`)
+(for a child feed) or 3 (`0x03`). Again, only the `TYP` field is different.
 
 ```
 - PFID   :  32 Bytes   ID of the predecessor feed
@@ -375,17 +376,34 @@ child feed) or 3. Again, only the `TYP` field can distinguish them.
 - HASH   :  12 Bytes   hash(PFID[PSEQ])
 ```
 
-Note that the fields PFID and PSEQ refer to the feed entry of the
+Note that the fields `PFID` and `PSEQ` refer to the feed entry of the
 parent/predecessor feed, thus do not match the FID and SEQ fields.
 
 TODO: type 6, explain hash better?
 
 ### Type 6: Acknowledgement
 
+One of the purposes of the continuation feed is to discard old data to keep 
+only the bare minimum, especially for devices with limited capacity. But 
+before discarding a feed, one need to be sure that the data was indeed received.
+This is done by sending an acknowledgement entry of type 6 (`0x06`): when a 
+peer receives a feed entry of type 3 (is continuation), it sends an 
+acknowledgement packet, which allows the peer to discard the continued feed. 
+This packet contains the following fields:
+
 ```
 - OLDFID  :  32 Bytes   id of the feed whose action is acknowledged  
-- PADD    :  16 Bytes   padding
+- PAD     :  16 Bytes   padding
 ```
+
+## Type 7 and 8: Set and Delete
+
+Some feeds are used for managing abstract data types, as explained in 
+[Documentation](API-documentation.md). To make the best use of the limited 48 bytes
+and as we can have up to 128 fields types, we define two new packet types: `set`
+(`0x07`) and `delete` (`0x08`). The content is free (usually 
+[BIPF](https://github.com/ssbc/bipf) encoded) and is a handy shortcut for adding
+or removing data to a list.
 
 ## Filtering Received Packets via "Expectation Tables"
 

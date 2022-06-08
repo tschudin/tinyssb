@@ -25,15 +25,15 @@ import hashlib
 import os
 
 from . import packet, util
-from tinyssb.dbg import *
 from .dbg import *
 
 if sys.implementation.name == 'micropython':
     def isfile(fn):
         try:    return os.stat(fn)[0] & 0x8000 != 0
         except: return False
+
     def isdir(dn):
-        try:    return os.stat(fn)[0] & 0x4000 != 0  # FIXME dn instead of fn?
+        try:    return os.stat(dn)[0] & 0x4000 != 0  # FIXME dn instead of fn?
         except: return False
 else:
     isfile = os.path.isfile
@@ -218,7 +218,7 @@ class LOG:
         self.frontM = hdr[96:116]                        # msgID of last rec
         self.file.seek(0, 2)
         assert self.file.tell() == 120 + 120 * (self.frontS - self.anchrS), \
-            "log file length mismatch"
+            f"log file length mismatch: {self.file.tell()} != {120 + 120 * (self.frontS - self.anchrS)}"
         self.acb = None  # append callback
         self.subscription = 0
 

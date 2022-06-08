@@ -1,27 +1,26 @@
 # tinyssb/identity.py
-import os
 
-import bipf
-
-from . import util, packet, application
-from .exception import *
-from .dbg import *
-
+"""
 __all__ = [
-    'Identity'
-]
-__id__ = [
     'list_contacts',
     'follow',
     'unfollow',
     'launch_app',
     'add_app',
     'delete_app',
-    'send',
+    'write_public',
     'request_latest',
     'add_interface',
     'sync'
 ]
+"""
+
+import os
+
+import bipf
+from . import util, packet, application
+from .exception import *
+from .dbg import *
 
 class Identity:
 
@@ -79,7 +78,7 @@ class Identity:
         for key, value in self.directory['aliases'].items():
             if value == public_key:
                 self.directory['aliases'].pop(key)
-                self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_delete, bytes(16)+public_key)
+                self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_delete, public_key + bytes(16))
                 self.nd.peers.remove(public_key)
                 dbg(GRE, f"Unfollow: contact was deleted from contact list.")
                 return
@@ -91,7 +90,6 @@ class Identity:
         log = self.nd.repo.get_log(self.directory['apps'][app_name]['fid'])
         self.__current_app = application.Application(self.nd, log)
         return self.__current_app
-        # TODO loop to request new data ?
 
     def add_app(self, app_name, appID):
         """
@@ -233,7 +231,7 @@ class Identity:
         for i in range(1, len(aliases_feed)+1):
             pkt = aliases_feed[i]
             if pkt.typ[0] == packet.PKTTYPE_delete:
-                fid = pkt.payload[16:]
+                fid = pkt.payload[:32]
                 to_delete = []
                 for key, value in self.directory['aliases'].items():
                     if value == fid:

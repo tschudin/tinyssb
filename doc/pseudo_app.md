@@ -15,21 +15,23 @@ import tinyssb as tiny
 # List ids that I can load (only the names associated to it)
 ids = tiny.list_identities()
 i = input(f"Choose an identity to open (write its index): {ids} ")
-identity = tiny.fetch_id(ids[i])
+identity = tiny.load_identity(ids[i])
 rd = identity.directory
 ad = rd['apps']
 chess_games = ad['chess']
-ui = ...
-identity.launch_app(chess_games, ui)  # enter the app
+app = identity.launch_app(chess_games)  # enter the app
+
+# Add the callback run after each incoming message
+app.set_callback(lambda message: print(message))
 
 # print the different sessions (subfeeds) available
 # Example: a chat, a chess game, ...
-with_ = input(rd['alias'])
+instance_id = input("With which instance do you want to run? \n" +
+                   f"{app.instances}")
 
-session = identity.open_session(with_)
-session.register(upcall_function)
+session = app.start_inst(instance_id)
 while True:
-    msg = ui.input("> ")
+    msg = app.send(input("> "))
     if msg == 'quit':
         identity.sync()
         break

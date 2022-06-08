@@ -31,7 +31,7 @@ List of all packets fields:
     mid      :   20B  sha256(fullLogEntry)[:20]
     
 Not explicit in code:
-    prefix          : declaration of packet version (see VERSION)
+    prefix          : declaration of packet version (see PFX)
     expandedLogEntry: prefix + nam + dmx + typ + payload
                       prefix + fid + seq + prev + dmx + typ + payload 
     fullLogEntry    : expandedLogEntry + signature
