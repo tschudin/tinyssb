@@ -75,7 +75,7 @@ class SlidingWindow:
         if pkt.typ[0] == packet.PKTTYPE_contdas:
             self.rfd = self.nd.repo.get_log(pkt.payload[:32])
             # self.nd.repo.del_log(pkt.fid)
-            self.app.update_inst(self.id_number, pkt.payload[:32])
+            self.app.update_inst_with_old_remote(self.id_number, pkt.payload[:32], pkt.fid)
         elif pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
             # should verify proof
