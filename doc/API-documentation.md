@@ -7,7 +7,7 @@ _Author: Etienne Mettaz_
 
 We present here the main documentation for understanding and using TinySSB. For
 a more technical documentation on the packets' content, see the
-[packet specification documentation](packet-specification.md).
+[packet specification documentation](low-level-concepts.md).
 
 ## Introduction
 
@@ -46,7 +46,7 @@ entry, for example:
 - ...
 
 For a complete list and a better description of the packet structure, see the
-[specific documentation](packet-specification.md).
+[specific documentation](low-level-concepts.md).
 
 ### The `root` feed
 
@@ -116,32 +116,39 @@ ignored.
 
 ### The app specific sub-feed
 
-To create a new app, one write a `make_child` packet in the `apps` feed. This
-feed is filled with two types of packets: `blob`, `set` and `delete`. When the
-payload is too long to fit in the 48 bytes of `set`'s payload, one use `blob`
-instead. This doesn't lead to a problem as there can be no confusion. For
-readability, we will use `set` in this documentation, but bear in mind that if
-the payload is more than 48 bytes, the packet is a blob instead.
+Each can have several `instances` (a game, a chat group, ...). Each instance
+consists of up to 5 fields (bipf encoded):
 
-To create a new game, we add a `set` packet that contains the following fields
-as a bipf encoded dictionary:
+- `inst_id`            : integer, unique identifier of the instance,
+- `initial_local_fid`  : 32B public key, the feed I'm writing to at the
+  beginning
+- `local_fid`          : 32B public key, the feed I'm currently writing to
+  (different from `initial_local_fid` in case of a continuation feed)
+- `peers`              : an array of remote peers containing:
+    - `with`               : the friend's `public` key (as appear in `aliases`)
+    - `initial_remote_fid` : 32B public key, the feed used at the beginning
+        of the instance
+    - `remote_fid`         : 32B public key, the feed currently used
+- `name`               : an optional string, application or user property for 
+    the game, can be freely chosen by the developer and/or the user
 
-- `inst_id`            : integer, instance identification number,
-- `initial_local_fid`  : 32 bytes public key, the feed I'm writing to
-- `initial_remote_fid` : 32 bytes public key, the feed I'm reading from
-- `with`               : 32 bytes public key, the friend's `public` key (as
-  appear in `aliases`)
-- `name`               : a string, can be freely chosen by the developer
-  and/or the user
+NB: the first version of TinySSB does not support a change of public id (see 
+`public` feed). This means the `peers`[`with`] is used as identification. 
+For following version, we might add support for that.
 
-`name` is an application or user property for the game and is optional.
+To create a new instance of an app, one writes a `make_child` packet in the
+`apps` feed. The newly created feed is filled with two types of packets: 
+`set` and `delete` (when the payload is too long to fit in the 48 bytes of 
+`set`'s payload, one use `blob` instead, which doesn't lead to a problem as 
+it is the only use of `blob` packets in this feed. For readability, we will 
+use `set` in this documentation, but bear in mind that the packet can be a 
+blob instead.)
 
 To update a field, one writes a new `set` packet with the same `inst_id`. It
-can contain the same fields as the original entry except for `initial_*_fid`.
-Indeed, these two fields are used to keep track of the whole game (having
-the initial feed, one can reconstruct the whole game by following the chain
-built by the continuation feeds).
-Following updates will not override those values: the field `local_fid`
+can update any field except for `initial_*_fid`. Indeed, these two fields 
+are used to keep track of the whole game (having the initial feed, one can 
+reconstruct the whole game by following the chain built by the continuation 
+feeds). Following updates will not override those values: the field `local_fid`
 (rsp. `remote_fid`) will be used to update those values in case of continuation
 feeds (this is done automatically).
 

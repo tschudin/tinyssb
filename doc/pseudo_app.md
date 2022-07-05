@@ -19,27 +19,28 @@ identity = tiny.load_identity(ids[i])
 rd = identity.directory
 ad = rd['apps']
 chess_games = ad['chess']
-app = identity.launch_app(chess_games)  # enter the app
+app = identity.resume_app(chess_games)  # enter the app
 
 # Add the callback run after each incoming message
 app.set_callback(lambda message: print(message))
 
 # print the different sessions (subfeeds) available
 # Example: a chat, a chess game, ...
-instance_id = input("With which instance do you want to run? \n" +
-                   f"{app.instances}")
+instance_id = input(
+    "With which instance do you want to run? \n"+f"{app.instances}")
 
-session = app.start_inst(instance_id)
+session = app.resume_inst(instance_id)
 while True:
     msg = app.send(input("> "))
     if msg == 'quit':
-        identity.sync()
+        identity.__save_keys()
         break
     else:
         session.send(msg)
 ```
 
 31.05:
+
 ```python
 import tinyssb as tiny
 
@@ -49,8 +50,8 @@ i = input(f"Choose an identity to open (write its index): {ids} ")
 identity = tiny.fetch_id(ids[i])
 dir = identity.directory
 print(dir['apps'])  # Output: (['chess'], ['tetris'])
-app = identity.launch_app('chess')
-i = input(f"Choose a game instance: {app.instances}")  
+app = identity.resume_app('chess')
+i = input(f"Choose a game instance: {app.instances}")
 # Output: { '0': { ... }, '1': { ... } ... }
 
 app.start(i)
@@ -58,7 +59,7 @@ app.set_callback(lambda received: print(received))
 while True:
     msg = ui.input("> ")
     if msg == 'quit':
-        identity.sync()
+        identity.__save_keys()
         break
     else:
         session.send(msg)

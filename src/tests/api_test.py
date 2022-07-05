@@ -1,5 +1,6 @@
 #tests/api_test.py
 # 2022-05-25 <et.mettaz@unibas.ch>
+import time
 import unittest
 
 import tinyssb as tiny
@@ -22,10 +23,11 @@ class ApiTestCase(unittest.TestCase):
     def test_load_identity(self):
         tiny.erase_all()
         peer1 = tiny.generate_id("Charlie")
+        time.sleep(0.1)
         peer2 = tiny.load_identity("Charlie")
         self.assertIsInstance(peer2, Identity)
         self.assertEqual(peer1.name, peer2.name)
-        self.assertEqual(peer1.nd.me, peer2.nd.me)
+        self.assertEqual(peer1.manager.node.me, peer2.manager.node.me)
 
 if __name__ == '__main__':
     unittest.main()

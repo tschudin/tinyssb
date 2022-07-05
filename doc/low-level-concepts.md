@@ -8,7 +8,8 @@ Missing:
 
 ## Abstract
 
-In classic Secure Scuttlebutt, a log entry is self-describing in the sense that
+In classic Secure Scuttlebutt, a feed is an append-only log to which a peer 
+add messages (log entries). A log entry is self-describing in the sense that
 it contains all relevant fields in order to verify the entry's signature.
 Together with some "trust anchor state", a consumer can assert the integrity,
 authenticity and trustworthiness of a log entry, if the previous log entry was

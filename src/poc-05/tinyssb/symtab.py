@@ -13,8 +13,8 @@ else:
     def bitlen(x): return x.bit_length()
 
 
-from tinyssb import session
-from tinyssb.dbg import *
+# from tinyssb import session
+# from tinyssb.dbg import *
 
 # algorithm textbooks implement symbol tables with binary search trees
 # and often focus on adding a symbol but have no way of removing an entry.
@@ -25,7 +25,26 @@ SYMTAB_DEL = 0
 SYMTAB_ADD = 1
 SYMTAB_RSZ = 2
 
-class Symtab(session.SlidingWindowClient):
+class SlidingWindowClient:
+
+    def __init__(self, slw, port):
+        self.slw = slw
+        self.port = port
+        self.slw.register(port, self)
+
+    def upcall(self, buf48):
+        pass
+
+    def write(self, buf48):
+        pass
+
+    def __del__(self):
+        self.slw.deregister(self.port)
+        self.slf = None
+
+    pass
+
+class Symtab(SlidingWindowClient):
 
     def __init__(self, slidingWindowProvider, port):
         super().__init__(slidingWindowProvider, port)

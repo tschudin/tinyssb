@@ -18,9 +18,10 @@ TERM_RED      = "\x1b[91m"
 TERM_BLUE     = "\x1b[94m"
 TERM_YELLOW   = "\x1b[93m"
 TERM_NORM     = "\x1b[0m"
+TERM_ERROR    = "\x1b[42m"
 
-GRE,GRA,MAG,RED,BLU,YEL = (TERM_GREEN, TERM_GRAY, TERM_MAGENTA,
-                           TERM_RED, TERM_BLUE, TERM_YELLOW)
+GRE,GRA,MAG,RED,BLU,YEL,ERR = (TERM_GREEN, TERM_GRAY, TERM_MAGENTA,
+                               TERM_RED, TERM_BLUE, TERM_YELLOW, TERM_ERROR)
 
 dbg_logfile = None
 dbg_screen_output_enabled = True

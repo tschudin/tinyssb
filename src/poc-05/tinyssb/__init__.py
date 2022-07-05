@@ -50,7 +50,7 @@ def generate_id(peer_name):
 
     repo = repository.REPO(pfx, lambda feed_id, msg, sig: ks.verify(feed_id, msg, sig))
     repo.mk_generic_log(pk, packet.PKTTYPE_plain48, b'log entry 1', lambda msg: ks.sign(pk, msg))
-    root = __start_node(repo, ks, pk, [])
+    root = __start_node(repo, ks, pk)
 
     default = {}
     for n in ['aliases', 'public', 'apps']:
@@ -76,7 +76,7 @@ def load_identity(peer_name):
     ks.load(pfx + '/_backed/' + cfg['rootFeedID'])
 
     repo = repository.REPO(pfx, lambda feed_id, sig, msg: ks.verify(feed_id, sig, msg))
-    root = __start_node(repo, ks, me, [])
+    root = __start_node(repo, ks, me)
     log = root.repo.get_log(me)
     default = {}
     for i in range(len(log) + 1):
@@ -87,8 +87,7 @@ def load_identity(peer_name):
             default[log_name] = fid
     return identity.Identity(root, peer_name, default)
 
-def __start_node(repo, ks, me, peer_list):
+def __start_node(repo, ks, me):
     faces = [io.UDP_MULTICAST(('224.1.1.1', 5000))]
-    nd = node.NODE(faces, ks, repo, me, peer_list)
-    nd.start()
+    nd = node.NODE(faces, ks, repo, me)
     return nd

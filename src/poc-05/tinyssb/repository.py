@@ -72,10 +72,12 @@ class REPO:
 
     def allocate_log(self, fid, trusted_seq, trusted_msgID,
                      buf120=None, parent_fid=bytes(32), parent_seq=0):
+        """
+        Allocate space for a remote log to be synced
+        """
         # use this to create a file where entries can start at any index
         fn = self._log_fn(fid)  # file_name
         if isfile(fn):
-            print("log", fn, "already exists")
             return None
         hdr = bytes(4)  # should have version and other magic bytes
         hdr += fid
@@ -91,7 +93,6 @@ class REPO:
             if pkt == None: return None
             hdr += pkt.seq.to_bytes(4, 'big') + pkt.mid  # as front
         assert len(hdr) == 120, "log file header must be 120B"
-        assert len(buf120) == 120
         # dbg(BLU, f"WRITE:\nhdr: {util.hex(hdr)};\nbuf: {util.hex(buf120)}")
         with open(fn, 'wb') as f:
             f.write(hdr)
@@ -112,7 +113,7 @@ class REPO:
         payload = childFID + usage
         assert len(payload) == 48
         p = self.get_log(parentFID)
-        pkt = p.write_typed_48B(packet.PKTTYPE_mkchild, payload, parentSign)
+        pkt = p.write_typed_48B(payload, packet.PKTTYPE_mkchild, parentSign)
         # FIXME specification says that last 12 bytes of 'PKTTYPE_ischild'
         #  (and of 'PKTTYPE_iscontn') = hash(fid[seq]) (fid and seq from
         #  referenced packet from other feed), but here we use the last
@@ -126,8 +127,8 @@ class REPO:
     def mk_continuation_log(self, prevFID, prevSign, contFID, contSign):
         # return both packets that were gerenated and appended
         p = self.get_log(prevFID)
-        pkt = p.write_typed_48B(packet.PKTTYPE_contdas,
-                                contFID + bytes(16), prevSign)
+        pkt = p.write_typed_48B(contFID + bytes(16),
+                                packet.PKTTYPE_contdas, prevSign)
         buf48 = pkt.fid + pkt.seq.to_bytes(4, 'big') + pkt.wire[-12:]
         newFeed = self.mk_generic_log(contFID, packet.PKTTYPE_iscontn,
                                       buf48, contSign)
@@ -141,9 +142,11 @@ class REPO:
         """
         if not fid in self.open_logs:
             fn = self._log_fn(fid)  # file name
-            if not isfile(fn): return None
+            if not isfile(fn):
+                return None
             l = LOG(fn, self.vfct)
-            if l == None: return None
+            if l == None:
+                return None
             self.open_logs[fid] = l
         return self.open_logs[fid]
 
@@ -230,7 +233,11 @@ class LOG:
             if seq < 0:
                 raise IndexError
         pos = 120 * (seq - self.anchrS)
-        self.file.seek(pos)
+        try:
+            self.file.seek(pos)
+        except ValueError:
+            dbg(RED, f"Seeking of a closed file: {self.file.name}")
+            return None
         buf = self.file.read(120)
         if not buf or len(buf) == 0: return None
         mid = self.anchrM if seq == self.anchrS + 1 else bytes(20)
@@ -240,7 +247,10 @@ class LOG:
         return self.frontS
 
     def __del__(self):
-        self.file.close()
+        try:
+            self.file.close()
+        except Exception as e:
+            dbg(MAG, f"Exception e: {e} for __{self}__")
 
     def _append(self, pkt):
         assert pkt.seq == self.frontS + 1, "new log entry not in sequence"
@@ -266,9 +276,9 @@ class LOG:
         return pkt
 
     def write_plain_48B(self, buf48, signfct):
-        return self.write_typed_48B(packet.PKTTYPE_plain48, buf48, signfct)
+        return self.write_typed_48B(buf48, packet.PKTTYPE_plain48, signfct)
 
-    def write_typed_48B(self, typ, buf48, signfct):
+    def write_typed_48B(self, buf48, typ, signfct):
         """
         Create a packet and compute signature.
         :param typ: 1 byte type
@@ -282,7 +292,7 @@ class LOG:
         return self.append(e.wire)
 
     def write_eof(self, signfct):
-        return self.write_typed_48B(packet.PKTTYPE_contdas, bytes(48), signfct)
+        return self.write_typed_48B(bytes(48), packet.PKTTYPE_contdas, signfct)
 
     def prepare_chain(self, buf, signfct):  # returns list of packets, or None
         e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)

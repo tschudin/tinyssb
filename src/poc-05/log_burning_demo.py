@@ -31,7 +31,7 @@ def start_node(path):
 
     faces = [io.UDP_MULTICAST(('224.1.1.1',5000))]
     repo = repository.REPO(path, lambda pk,sig,msg: ks.verify(pk,sig,msg))
-    nd = node.NODE(faces, ks, repo, me, peerlst)
+    nd = node.NODE(faces, ks, repo, me) #, peerlst)
     nd.start()
 
     return nd, alias
@@ -108,7 +108,7 @@ if __name__ == '__main__':
         print(f"handshake received: remote sess feed is {util.hex(remoteSessFID)[:20]}..")
         print()
         
-        nd.sess = session.SlidingWindow(nd, localSessFID, remoteSessFID)
+        # nd.sess = session.SlidingWindow(nd, localSessFID, { remoteSessFID })
         st = symtab.Symtab(slidingWindowProvider=nd.sess, port=1)
         nd.sess.start() # this does upcalls for all content received to far
 
@@ -164,7 +164,7 @@ if __name__ == '__main__':
         nd.push(pkts, True) # push (again) session details if Alice was not
                             # online when we pushed the first time
         
-        nd.sess = session.SlidingWindow(nd, localSessFID, remoteSessFID)
+        # nd.sess = session.SlidingWindow(nd, localSessFID, { remoteSessFID })
         st = symtab.Symtab(slidingWindowProvider=nd.sess, port=1)
         st.set_upcall(lambda chg: dbg(BLU, 'symtab notification:',
                        [x if type(x) != bytes else util.hex(x) for x in chg]))

@@ -2,31 +2,26 @@
 
 """
 __all__ = [
-    'list_contacts',
     'follow',
     'unfollow',
-    'launch_app',
-    'add_app',
+    'resume_app',
+    'define_app',
     'delete_app',
-    'write_public',
-    'request_latest',
-    'add_interface',
-    'sync'
+    'write_to_public'
 ]
 """
-
-import os
+import _thread
 
 import bipf
-from . import util, packet, application
+from . import packet, application, log_manager
 from .exception import *
-from .dbg import *
+from .node import LOGTYPE_private, LOGTYPE_remote
 
 class Identity:
 
     def __init__(self, root, name, default_logs=None):
-        self.nd = root
         self.name = name
+        self.manager = log_manager.LogManager(self, root, default_logs)
 
         self.aliases = default_logs['aliases']
         self.public = default_logs['public']
@@ -37,14 +32,7 @@ class Identity:
 
         self.__load_contacts()
         self.__load_apps()
-        self.sync()
-
-    def list_contacts(self):
-        """
-        List contacts, key/values being fid/alias_name
-        :return: a (python) list
-        """
-        return self.directory['aliases']
+        _thread.start_new_thread(self.manager.loop, tuple())
 
     def follow(self, public_key, alias):
         """
@@ -53,151 +41,183 @@ class Identity:
         :param alias: name to give to the peer
         :return: True if succeeded (if alias and public key were not yet in db)
         """
+        # 1.2, 2.0, 3.0, _, 5.1
         if self.directory['aliases'].get(alias):
+            if self.directory['aliases'][alias] == public_key:
+                return  # already following
             raise AlreadyUsedTinyException(f"Follow: alias {alias} already exists.")
         for key, value in self.directory['aliases'].items():
             if value == public_key:
                 raise AlreadyUsedTinyException(f"Public key is already in contact list.")
+        if bipf.encodingLength(alias) > 16:
+            raise TooLongTinyException(f"Alias {alias} is too long")
+
+        # 1.2
+        self.manager.allocate_for_remote(public_key)
+
+        # 2.0
         self.directory['aliases'][alias] = public_key
 
-        encoded_alias = bipf.dumps(alias)
-        if len(encoded_alias) > 16:
-            raise TooLongTinyException(f"Alias {alias} is too long")
-        buffer = public_key + encoded_alias + bytes(16 - len(encoded_alias))
-        dbg(MAG, f"Buffer: 16 >= {len(encoded_alias)}; 48 == {len(buffer)}; name = {bipf.loads(buffer[32:])}")
-        self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_set, buffer)
-        self.nd.peers.append(public_key)
-        self.sync()
+        # 3.0
+        self.manager.set_in_log(self.aliases, public_key+bipf.dumps(alias))
 
-    def unfollow(self, public_key):
+    def unfollow(self, alias):
         """
         Unsubscribe from the feed with the given pk
-        :param public_key: bin encoded feedID
-        :return: True if succeeded
+        For now, we do not have a mechanism do delete a peer from current instances
+        :param alias: name of the contact
         """
-        for key, value in self.directory['aliases'].items():
-            if value == public_key:
-                self.directory['aliases'].pop(key)
-                self.nd.write_typed_48B(self.aliases, packet.PKTTYPE_delete, public_key + bytes(16))
-                self.nd.peers.remove(public_key)
-                dbg(GRE, f"Unfollow: contact was deleted from contact list.")
-                return
-        raise NotFoundTinyException("Contact not deleted: not found in contact list.")
+        # 1.3, 2.0, 3.1, _
 
-    def launch_app(self, app_name):
+        # 2.0
+        try:
+            public_key = self.directory['aliases'].pop(alias)
+        except KeyError:
+            raise NotFoundTinyException("Contact not deleted: not found in contact list.")
+
+        # 1.3 and 3.1
+        self.manager.delete_on_disk(public_key, self.aliases, public_key)
+
+    def resume_app(self, app_name):
+        """
+        Start an app that has already been created by defined_app
+        :param app_name: the human-readable name of the app
+        :return: instance of Application object
+        """
+        # _, _, _, 4.0
         if self.directory['apps'].get(app_name) is None:
             raise NotFoundTinyException(f"App {app_name} not found.")
-        log = self.nd.repo.get_log(self.directory['apps'][app_name]['fid'])
-        self.__current_app = application.Application(self.nd, log)
+
+        # 4.0
+        log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
+        self.__current_app = application.Application(self.manager, log)
         return self.__current_app
 
-    def add_app(self, app_name, appID):
+    def define_app(self, app_name, appID):
         """
+        Create an app-specific subfeed (where instances will be announced)
         :param app_name: a (locally) unique name
         :param appID: a (globally) unique 32 bytes ID
+        :return: instance of Application object
         """
+        # 1.0, 2.0, 3.0, 4.0
         if self.directory['apps'].get(app_name) is not None:
+            if self.directory['apps'][app_name]['appID'] == appID:
+                return self.resume_app(app_name)
             raise AlreadyUsedTinyException(f"App {app_name} is already used")
 
-        fid = self.nd.ks.new(app_name)
-        an = bipf.dumps(app_name)
-        an += bytes(16 - len(an))
-    
+        # If appID is already used, just change app_name
         for app in self.directory['apps']:
             if self.directory['apps'][app]['appID'] == appID:
-                self.nd.write_typed_48B(self.apps, packet.PKTTYPE_set, appID + an)
+
+                # 3.0
+                self.manager.set_in_log(self.apps, appID+bipf.dumps(app_name))
+
+                # 2.0
                 entry = self.directory['apps'].pop(app)
                 self.directory['apps'][app_name] = entry
-                return None # changed app_name
 
-        self.nd.repo.mk_child_log(self.apps,
-                                  self.nd.ks.get_signFct(self.apps), fid,
-                                  self.nd.ks.get_signFct(fid), an)
-        self.nd.write_typed_48B(self.apps, packet.PKTTYPE_set, appID + an)
+                # 4.0
+                log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
+                self.__current_app = application.Application(self.manager, log)
+                return self.__current_app
+
+        # 1.0
+        fid = self.manager.create_on_disk(self.apps, app_name, LOGTYPE_private)
+
+        # 2.0
         self.directory['apps'][app_name] = { 'fid': fid, 'appID': appID }
-        log = self.nd.repo.get_log(fid)
-        self.__current_app = application.Application(self.nd, log)
-        self.sync()
+
+        # 3.0
+        self.manager.set_in_log(self.apps, appID+bipf.dumps(app_name))
+
+        # 4.0
+        self.__current_app = application.Application(self.manager, self.manager.get_log(fid))
+
         return self.__current_app
 
     def delete_app(self, app_name, appID):
         """
+        Delete all data (incl. logs) associated with an app
         :param app_name: a (locally) unique name
         :param appID: a (globally) unique 32 bytes ID
         """
+        # 1.3, 2.0, 3.1, 4.0, 5.2
         app = self.directory['apps'].get(app_name)
         if app is None:
             raise NotFoundTinyException(f"App {app_name} does not exist (already deleted?)")
         if appID != app['appID']:
             raise TinyException(f"AppID do not match '{app_name}'")
 
-        an = bipf.dumps(app_name)
-        an += bytes(16-len(an))
-        old_log = self.nd.repo.get_log(app['fid'])
-        old_log.write_eof(lambda msg: self.nd.ks.sign(app['fid'], msg))
+        log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
+        app_inst = application.Application(self.manager, log)
+        for inst in app_inst.instances.copy():
+            app_inst.delete_inst(inst)
 
-        self.nd.write_typed_48B(self.apps, packet.PKTTYPE_delete, appID + an)
+        # 5.2
+        self.manager.write_eof(app['fid'])
+
+        # 1.3 + 3.1
+        self.manager.delete_on_disk(app['fid'], self.apps, appID + bipf.dumps(app_name))
+
+        # 2.0
         self.directory['apps'].pop(app_name)
-        self.nd.ks.remove(app['fid'])
 
-    def write_public(self, msg):
-        if len(msg) > 48:
-            dbg(GRE, f"Sending Blob!!!")
-            self.nd.write_blob_chain(self.public, bipf.dumps(msg))
-        else:
-            dbg(GRE, f"Sending Log")
-            self.nd.write_plain_48B(self.public, bipf.dumps(msg))
+        # 4.0
+        if self.__current_app == app_inst:
+            self.__current_app = None
 
-    def request_latest(self, friend_id=None, comment="api"):
+    def write_to_public(self, data):
+        self.manager.write_in_log(self.public, data)
+
+    def __load_contacts(self):
         """
-        Request the latest packet to be sent again.
-        If no argument is used, request from all
-        peers in the current session
-        :param friend_id: bin encoded public key
-        :param comment: bounded length comment
-        :return:
+        Read 'aliases' feed and fill the contact dictionary.
+        :return: nothing
         """
-        if friend_id is None:
-            repository = self.nd.repo
-            for feed in self.nd.peers:
-                self.nd.request_latest(repository, repository.get_log(feed), comment)
-        else:
-            self.nd.request_latest(self.nd.repo,
-                                      self.nd.repo.get_log(friend_id), comment)
-
-    def add_interface(self):
-        pass
-
-    def sync(self):
-        folder_path = util.DATA_FOLDER + self.name + '/_backed/'
-        os.system(f"mkdir -p {folder_path}")
-
-        file_name = util.hex(self.nd.me)
-        file_path = folder_path + file_name
-        try:
-            self.nd.ks.dump(file_path)
-        except FileNotFoundError:
-            dbg(GRE, f"File not found")
-            os.system(f"mkdir -p {file_path}")
-            self.nd.ks.dump(file_path)
-        # What else?
+        aliases_feed = self.manager.get_log(self.aliases)
+        for i in range(1, len(aliases_feed)+1):
+            pkt = aliases_feed[i]
+            if pkt.typ[0] == packet.PKTTYPE_delete:
+                fid = pkt.payload[:32]
+                self.manager.deactivate_log(fid)
+                to_delete = []
+                for key, value in self.directory['aliases'].items():
+                    if value == fid:
+                        to_delete.append(key)
+                for k in to_delete:
+                    self.directory['aliases'].pop(k)
+            if pkt.typ[0] == packet.PKTTYPE_set:
+                fid = pkt.payload[:32]
+                self.manager.activate_log(fid, LOGTYPE_remote)
+                name = bipf.loads(pkt.payload[32:])
+                assert self.directory['aliases'].get(name) is None
+                self.directory['aliases'][name] = fid
 
     def __load_apps(self):
         """
         Read 'apps' feed and fill the corresponding dictionary.
         """
-        apps_feed = self.nd.repo.get_log(self.apps)
+        # 1.1, 2.0, _, _
+        apps_feed = self.manager.get_log(self.apps)
         for i in range(1, len(apps_feed)+1):
             pkt = apps_feed[i]
             if pkt.typ[0] == packet.PKTTYPE_mkchild:
                 fid = pkt.payload[:32]
                 app_name = bipf.loads(pkt.payload[32:])
                 # No checking for uniqueness: further mk_child will override feedID for an app
+
+                # 2.0
                 if self.directory['apps'].get(app_name) is None:
                     self.directory['apps'][app_name] = { 'fid': fid }
                 else:
                     self.directory['apps'][app_name]['fid'] = fid
 
+                    # 1.1
+                    self.manager.deactivate_log(self.directory['apps'][app_name])
+                self.manager.activate_log(fid, LOGTYPE_private)
+
+            # only 2.0
             elif pkt.typ[0] == packet.PKTTYPE_set:
                 appID = pkt.payload[:32]
                 app_name = bipf.loads(pkt.payload[32:])
@@ -205,8 +225,10 @@ class Identity:
                 # (but there can be several 'set' for a 'mk_child')
                 a = self.directory['apps'].get(app_name)
                 if a is not None:
+                    # change appID
                     a['appID'] = appID
                 else:
+                    # change app name
                     for a in self.directory['apps']:
                         if a.get('appID') == appID:
                             self.directory['apps'][app_name] = {'fid': a.get('fid'),
@@ -220,26 +242,6 @@ class Identity:
                 to_delete = self.directory['apps'].get(app_name)
                 assert to_delete is not None
                 assert to_delete['appID'] == appID
+                self.manager.deactivate_log(to_delete['fid'])
                 self.directory['apps'].pop(app_name)
-
-    def __load_contacts(self):
-        """
-        Read 'aliases' feed and fill the contact dictionary.
-        :return: nothing
-        """
-        aliases_feed = self.nd.repo.get_log(self.aliases)
-        for i in range(1, len(aliases_feed)+1):
-            pkt = aliases_feed[i]
-            if pkt.typ[0] == packet.PKTTYPE_delete:
-                fid = pkt.payload[:32]
-                to_delete = []
-                for key, value in self.directory['aliases'].items():
-                    if value == fid:
-                        to_delete.append(key)
-                for k in to_delete:
-                    self.directory['aliases'].pop(k)
-            if pkt.typ[0] == packet.PKTTYPE_set:
-                fid = pkt.payload[:32]
-                name = bipf.loads(pkt.payload[32:])
-                assert self.directory['aliases'].get(name) is None
-                self.directory['aliases'][name] = fid
+# eof

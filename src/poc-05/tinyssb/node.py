@@ -7,20 +7,25 @@
 import hashlib
 import _thread
 
+import bipf
 from . import io, packet, util
 from .dbg import *
+from .exception import TinyException, NotFoundTinyException
+
+LOGTYPE_private = 0x00  # private fid (not to be shared)
+LOGTYPE_public  = 0x01  # public fid to synchronise with peers
+LOGTYPE_remote  = 0x02  # public fid from a remote peer
 
 
 class NODE:  # a node in the tinySSB forwarding fabric
 
-    def __init__(self, faces, keystore, repo, me, peerlst):
+    def __init__(self, faces, keystore, repo, me):
         self.faces = faces
         self.ks = keystore
         self.repo  = repo
         self.dmxt  = {}    # DMX  ~ dmx_tuple  DMX filter bank
         self.blbt  = {}    # hptr ~ blob_obj  blob filter bank
-        self.users = {}    # Unused fid  ~ user_obj  the users I serve (soc graph)
-        self.peers = peerlst    # fid other nodes
+        self.logs = { util.hex(me): LOGTYPE_private }
         self.timers = []
         self.comm = {}
         #
@@ -28,6 +33,33 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.pending_chains = []
         self.next_timeout = [0]
         self.ndlock = _thread.allocate_lock()
+
+    def activate_log(self, fid, log_type):
+        """
+        Keeps track of all the active private, public and remote feeds
+        """
+        hex_fid = util.hex(fid)
+        if log_type not in [LOGTYPE_private, LOGTYPE_public, LOGTYPE_remote]:
+            raise TinyException(f"'{log_type}' is not a log type")
+        self.ndlock.acquire()
+        self.logs[hex_fid] = log_type
+        self.ndlock.release()
+        if log_type == LOGTYPE_remote:
+            # If it doesn't exist, allocate space for the remote log
+            log = self.repo.get_log(fid)
+            if log is None:
+                log = self.repo.allocate_log(fid, 0, fid[:20])
+            self.request_latest(log, "Add new log")
+
+    def deactivate_log(self, fid):
+        hex_fid = util.hex(fid)
+        try:
+            self.ndlock.acquire()
+            self.logs.pop(hex_fid)
+            self.ndlock.release()
+        except KeyError:
+            self.ndlock.release()
+            dbg(YEL, "There is no log with id = {hex_fid}")
 
     def start(self):
         self.ioloop = io.IOLOOP(self.faces, self.on_rx)
@@ -74,32 +106,19 @@ class NODE:  # a node in the tinySSB forwarding fabric
         """
         # all tSSB packet reception logic goes here!
         # dbg(GRE, "<< buf", len(buf), util.hex(buf[:20]), "...")
-        if len(buf) == 120:
-            dbg(GRE, "<< buf", len(buf))#, util.hex(buf[10:20]), "...")
-            dbg(RED, "<< is", len(buf))#, "...", buf[:7] in self.dmxt)
-            # for d in self.dmxt:
-                # print(RED, f"{d}: {len(d)}\n{buf[:7]}\n")
-        # if neigh.src:
-        #     print("   src", neigh.src)
-        '''
-        if len(buf) == 128:
-          buf = try to uncloak
-        if hash(buf) in self.blob:
-            ...
-        '''
+        # if len(buf) == 120:
+            # try: dbg(RED, "<< is", bipf.loads(buf[8:56]))#, "...", buf[:7] in self.dmxt)
+            # except: pass
+
         dmx = buf[:7]
         if dmx in self.dmxt:
-            # print('  call', self.dmxt[dmx])
             self.dmxt[dmx](buf, neigh)
         else:
             hptr = hashlib.sha256(buf).digest()[:20]
             if hptr in self.blbt:
                 self.blbt[hptr](buf, neigh)
-            else:
-                # XX dbg(GRA, "no dmxt or blbt entry found for", util.hex(dmx))
-                pass
 
-    def push(self, pkt_lst, forced=False):
+    def push(self, pkt_lst, forced=True):
         for pkt in pkt_lst:
             feed = self.repo.get_log(pkt.fid)
             if feed == None: continue
@@ -110,9 +129,9 @@ class NODE:  # a node in the tinySSB forwarding fabric
             feed.subscription = 0
 
     def write_plain_48B(self, fid, buf48, sign=None):
-        self.write_typed_48B(fid, packet.PKTTYPE_plain48, buf48, sign)
+        self.write_typed_48B(fid, buf48, packet.PKTTYPE_plain48, sign)
 
-    def write_typed_48B(self, fid, typ, buf48, sign=None):
+    def write_typed_48B(self, fid, buf48, typ, sign=None):
         """
         Prepare next log entry, finalise this packet and send it.
         :param fid: feed id (bin encoded)
@@ -124,11 +143,15 @@ class NODE:  # a node in the tinySSB forwarding fabric
         feed = self.repo.get_log(fid)
         self.ndlock.acquire()
         if sign is None:
-            pkt = feed.write_typed_48B(typ, buf48, lambda msg: self.ks.sign(fid, msg))
+            pkt = feed.write_typed_48B(buf48, typ, lambda msg: self.ks.sign(fid, msg))
         else:
-            pkt = feed.write_typed_48B(typ, buf48, sign)
+            pkt = feed.write_typed_48B(buf48, typ, sign)
         self.arm_dmx(pkt.dmx) # remove potential old demux handler
+        # dbg(GRE, f"DMX OUT: {util.hex(pkt.dmx)} for {util.hex(fid)}")
         self.ndlock.release()
+
+        if self.logs[util.hex(fid)] == LOGTYPE_private: return
+
         for f in self.faces:
             # print(f"_ enqueue2 {util.hex(pkt.fid[:20])}.{pkt.seq} @{pkt.wire[:7].hex()}")
             f.enqueue(pkt.wire)
@@ -143,9 +166,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
         buffer = self.repo.persist_chain(pkt, blobs)[:1]
         self.ndlock.release()
 
+        if self.logs[util.hex(fid)] == LOGTYPE_private: return
+
         for f in self.faces:
             for p in buffer:
-                dbg(BLU, f"f={f}, pkt={p[:3]}")
+                # dbg(BLU, f"f={f}, pkt={p[:3]}")
                 f.enqueue(p)
 
     # ----------------------------------------------------------------------
@@ -160,6 +185,10 @@ class NODE:  # a node in the tinySSB forwarding fabric
         :param neigh: the corresponding IO interface
         :return: nothing
         """
+        # Little perk for identity.__save_dmxt: calling with an empty buffer
+        # returns None, which means we can discard it
+        if buf is None:
+            return None
         buf = buf[7:]  # cut the DMX away
         while len(buf) >= 24:
             fid = buf[:32]
@@ -181,7 +210,10 @@ class NODE:  # a node in the tinySSB forwarding fabric
             buf = buf[36:]
 
     def incoming_blob_request(self, demx, buf, neigh):
-        # dbg(GRA, f'RCV blob@dmx={util.hex(demx)}')
+        # Little perk for identity.__save_dmxt: calling with an empty buffer
+        # returns None, which means we can discard it
+        if buf is None:
+            return None
         buf = buf[7:]  # cut DMX off
         while len(buf) >= 22:
             hptr = buf[:20]
@@ -203,8 +235,11 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 pass
             buf = buf[22:]
 
-    def incoming_logentry(self, d, repo, feed, buf, n):
-        # dbg(GRA, f'RCV pkt@dmx={util.hex(d)}, try to append it')
+    def incoming_logentry(self, d, feed, buf, n):
+        # Little perk for identity.__save_dmxt: calling with an empty buffer
+        # return the feed id that we need to store to recreate the lambda
+        if buf is None:
+            return feed.fid
         pkt = feed.append(buf)  # this invokes the callback
         self.ndlock.acquire()
         if pkt == None:
@@ -223,29 +258,32 @@ class NODE:  # a node in the tinySSB forwarding fabric
             dbg(GRE, f'  told to stop old feed {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
-            feed = repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
+            # Redundant with session._process() in callback for instances, do nothing
+            feed = self.repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
+            if feed is None:
+                feed = self.repo.get_log(newFID)
             dbg(GRE, f'  ... and to switch to new feed {util.hex(newFID)[:20]}..')
             # feed.subscription += 1
-            feed.set_append_cb(oldfeed.acb)
+            # feed.set_append_cb(oldfeed.acb)
             # oldfeed = None
         elif pkt.typ[0] == packet.PKTTYPE_mkchild:
             dbg(GRE, f'  told to create subfeed for {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
-            newFeed = repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
+            newFeed = self.repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
             dbg(GRE, f'    new child is {util.hex(newFID)[:20]}..')
             newFeed.set_append_cb(oldfeed.acb)
             pktdmx = packet._dmx(newFID + int(1).to_bytes(4, 'big') + newFID[:20])
             # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(newFID)[:20]}.[1] /mkchild")
             self.arm_dmx(pktdmx,
-                         lambda buf, n: self.incoming_logentry(pktdmx, repo,
+                         lambda buf, n: self.incoming_logentry(pktdmx,
                                                                newFeed, buf, n),
                          f"{util.hex(newFID)[:20]}.[1] /mkchild")
-            self.request_latest(repo, newFeed, "<<~")
+            self.request_latest(newFeed, "<<~")
         elif pkt.typ[0] == packet.PKTTYPE_chain20:  # prepare for first blob in chain:
             h = util.hex(feed.fid)[:20]
             # FIXME where is the node ('nd') defined? It throws errors
-            pkt.undo_chain(lambda h: repo.fetch_blob(h))
+            pkt.undo_chain(lambda h: self.repo.fetch_blob(h))
             self.request_chain(pkt)
         # elif pkt.typ[0] == packet.PKTTYPE_iscontn:
         #     if pkt.seq == 1: # first packet has proof, don't invoke the cb
@@ -256,7 +294,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
         pktdmx = packet._dmx(feed.fid + nextseq + prevhash)
         # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(feed.fid)[:20]}.[{seq}] /incoming")
         self.arm_dmx(pktdmx,
-                     lambda buf, n: self.incoming_logentry(pktdmx, repo,
+                     lambda buf, n: self.incoming_logentry(pktdmx,
                                                            feed, buf, n),
                      f"{util.hex(feed.fid)[:20]}.[{seq}] /incoming")
         # set timeout to 1sec more than production interval
@@ -286,23 +324,33 @@ class NODE:  # a node in the tinySSB forwarding fabric
             # dbg(GRA, f"    end of chain was reached")
             pass
 
-    def request_latest(self, repo, feed, comment="?"):
-        # FIXME: I am confused about 'feed' and 'self.me'. I think 'me' is just a byte
-        #  array of the (binary) public key, but feed is an instance of class LOG (otherwise
-        #  call to method getfront() throws an error...
-        if feed == self.me: return
-        # if feed.fid == self.me: return ???
+    def request_latest(self, feed, comment="?"):
+        """
+        request the latest packet for a given feed
+        :param feed: instance of LOG
+        :param comment: Optional comment to be included in the request
+        :return: nothing
+        """
+        if self.logs.get(util.hex(feed.fid)) is None:
+            dbg(GRE, "Oh shit")
+        if self.logs.get(util.hex(feed.fid)) != LOGTYPE_remote:
+            # if len(self.my_logs.intersection(feed.fid)) == 0:
+            return
+        # dbg(GRE, f"in request latest for {comment}: !!!!!!!!!!{self.logs.get(util.hex(feed.fid))}")
+
         seq, prevhash = feed.getfront()
         seq += 1
         nextseq = seq.to_bytes(4, 'big')
         pktdmx = packet._dmx(feed.fid + nextseq + prevhash)
         # dbg(GRA, f"+dmx pkt@{util.hex(pktdmx)} for {util.hex(feed.fid)[:20]}.[{seq}]")
+        # dbg(RED, f"{comment} for {util.hex(feed.fid)[:20]}.[{seq}]")
         self.arm_dmx(pktdmx,
-                     lambda buf, n: self.incoming_logentry(pktdmx, repo,
+                     lambda buf, n: self.incoming_logentry(pktdmx,
                                                            feed, buf, n),
                      comment + f"{util.hex(feed.fid)[:20]}.[{seq}])")
 
-        for p in self.peers:
+        for p in self.logs:
+            p = util.fromhex(p)
             want_dmx = packet._dmx(p + b'want')
             wire = want_dmx + feed.fid + nextseq
             # does not need padding to 120B, it's not a log entry or blob
@@ -330,14 +378,13 @@ class NODE:  # a node in the tinySSB forwarding fabric
         # dbg(GRA, f"This is Replication for node {util.hex(self.myFeed.fid)[:20]}")
         # prepare to serve incoming requests for logs I have
         # i.e., sent to me, which means with DMX="myFID want"
-        want_dmx = packet._dmx(self.me + b'want')
-        # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} / me {util.hex(self.me)[:20]}...")
-        self.arm_dmx(want_dmx,
-                     lambda buf, n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {util.hex(self.me)[:20]}")
 
-        # dbg(YEL, "<< is", "...", want_dmx in self.dmxt)
-        # for d in self.dmxt:
-        #     print(YEL, f"{d}: {len(d)}\n{want_dmx}\n")
+        # dbg(GRA, f"+dmx want@{util.hex(want_dmx)} / me {util.hex(self.me)[:20]}...")
+        for fid in self.logs:
+            if self.logs[fid] != LOGTYPE_remote:
+                want_dmx = packet._dmx(util.fromhex(fid) + b'want')
+                self.arm_dmx(want_dmx,
+                     lambda buf, n: self.incoming_want_request(want_dmx, buf, n), f"arq to me {fid[:20]}")
 
         # prepare to serve blob requests
         blob_dmx = packet._dmx(b'blobs')
@@ -347,17 +394,17 @@ class NODE:  # a node in the tinySSB forwarding fabric
         while True:  # periodic ARQ
             now = time.time()
             if self.next_timeout[0] < now:
-                for fid in self.repo.listlog():
-                    if fid == self.me:
+                self.ndlock.acquire()
+                for fid in self.logs:
+                    feed = self.repo.get_log(util.fromhex(fid))
+                    if self.logs[fid] != LOGTYPE_remote or feed is None:
                         continue
-                    feed = self.repo.get_log(fid)
-                    self.ndlock.acquire()
                     if feed[-1].typ[0] == packet.PKTTYPE_contdas:
                         # this is a terminated feed, don't ask for news
-                        self.ndlock.release()
                         continue
-                    self.request_latest(self.repo, feed, "arq")
-                    self.ndlock.release()
+                    self.request_latest(feed, "arq for logs")
+                self.ndlock.release()
+
                 rm = []
                 for pkt in self.pending_chains:
                     pkt.undo_chain(lambda h: self.repo.fetch_blob(h))
