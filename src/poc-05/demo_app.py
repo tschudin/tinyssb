@@ -130,6 +130,7 @@ class DEMO:
 
     def demo_loop(self, name):
         cmd = ""
+        dbg(GRE, f"Welcome to tiny chat. Send \"?\" to see the different commands options.")
         while True:
             try:
                 cmd = input(f">> ")
