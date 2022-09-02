@@ -21,13 +21,13 @@ class LogManager:
         self.__save_key_lock = _thread.allocate_lock()
 
     def activate_log(self, fid, typ):
+        """
+        Keeps track of all the active private, public and remote feeds
+        """
         self.node.activate_log(fid, typ)
 
     def deactivate_log(self, fid):
         self.node.deactivate_log(fid)
-
-    def get_blob_function(self):
-        return lambda h: self.node.repo.fetch_blob(h)
 
     def create_on_disk(self, parent_log_id, name, log_type): # 1.0
         """
@@ -53,26 +53,57 @@ class LogManager:
         self.__save_keys()
         return fid
 
-    def allocate_for_remote(self, fid): # 1.2
-        self.node.repo.allocate_log(fid, 0, fid[:20])
+    def allocate_for_remote(self, fid, public_fid=bytes(32)): # 1.2
+        """
+        Allocate disk space for a remote feed we start following.
+        The public_fid lets us find which peers write to this feed, allowing
+        an easy search in the contact list
+        :param fid: remote feed id
+        :param public_fid: feed id of the "public" feed for this remote
+        """
+        self.node.repo.allocate_log(fid, 0, fid[:20], None, public_fid)
         self.node.activate_log(fid, LOGTYPE_remote)
 
-    def delete_on_disk(self, fid, parent_fid, data, all_logs=True): # 1.3 + 3.1
+    def delete_on_disk(self, fid, parent_fid, data, all_feeds=True): # 1.3 (includes 3.1)
+        """
+        Delete all data associated with a feed.
+        Automatically deactivate the log from the list in node.py and write a
+        "delete" message in the parent feed.
+        If all_feeds is set to "True", this will not only delete the given feed,
+        but also all continuation feeds from that point (but not an eventual
+        preceding feed or child feed).
+        Also delete the key pair (for local feeds only)
+        :param fid: the feed id of the log to be deleted
+        :param parent_fid: the feed id of the log containing the ADT that contained the feed
+        :param data: the data to write in the payload of the "delete" packet
+        :param all_feeds: if False, only deletes one feed (no continuation feed)
+        """
         log = self.get_log(fid)
+        if log is None:
+            dbg(YEL, f"Delete all: there is no log with fid = {util.hex(fid)}")
+            return
         pkt = log[log.frontS]
         self.node.repo.del_log(log.fid)
         try: self.node.ks.remove(log.fid)
         except KeyError: pass  # remote log, we do not have the keys
-        if pkt.typ[0] == packet.PKTTYPE_contdas and pkt.payload[:32] != bytes(32):
-            fid = pkt.payload[:32]
-            if all_logs:
-                self.delete_on_disk(fid, parent_fid, data)
-            else:
-                del log
-                return fid
-        else:
-            self.write_in_log(parent_fid, data, packet.PKTTYPE_delete)
-            self.node.deactivate_log(fid)
+        if pkt.typ[0] == packet.PKTTYPE_contdas and pkt.payload[:32] != bytes(32) and all_feeds:
+            self.delete_on_disk(pkt.payload[:32], parent_fid, data)
+
+        self.delete_in_log(parent_fid, data)
+        self.node.deactivate_log(fid)
+        del log
+
+    def delete_one_log(self, fid):
+        """ Delete one log (after a continuation packet for example) """
+        log = self.get_log(fid)
+        if log is None:
+            dbg(YEL, f"Delete one: there is no log with fid = {util.hex(fid)}")
+            return
+        self.node.repo.del_log(log.fid)
+        try: self.node.ks.remove(log.fid)
+        except KeyError: pass  # remote log, we do not have the keys
+
+        self.node.deactivate_log(fid)
         del log
 
     def set_in_log(self, fid, data): # 3.0
@@ -83,8 +114,19 @@ class LogManager:
         :param fid: feed id of the log to write to
         :param data: byte array, the value to set
         """
-        assert self.node.logs[util.hex(fid)] != LOGTYPE_remote
+        assert self.node.logs[util.hex(fid)] == LOGTYPE_private
         self.write_in_log(fid, data, packet.PKTTYPE_set)
+
+    def delete_in_log(self, fid, data): # 3.1
+        """
+        Delete a value in a log.
+        Append-only log does not allow for deletion, this just writes in the log
+        that the element os no longer included in the Abstract Data Type formed by the feed.
+        :param fid: feed id containing the ADT
+        :param data: the data to write in the payload
+        """
+        assert self.node.logs[util.hex(fid)] == LOGTYPE_private
+        self.write_in_log(fid, data, packet.PKTTYPE_delete)
 
     def write_in_log(self, fid, data, typ=packet.PKTTYPE_plain48): # 5.0
         """
@@ -93,7 +135,6 @@ class LogManager:
         :param data: the data to write (string)
         :param typ: the type of the packet
         """
-        # assert self.logs[util.hex(fid)] == LOGTYPE_public
         if type(data) is str:
             data = bipf.dumps(data)
         if len(data) > 48:
@@ -101,6 +142,18 @@ class LogManager:
         else:
             data += bytes(48 - len(data))
             self.node.write_typed_48B(fid, data, typ)
+
+    def add_remote(self, fid): # 5.1
+        pass
+
+    def write_eof(self, fid): # 5.2
+        """
+        Append an end_of_file packet to the feed.
+        This closes the feed (but do not delete it)
+        :param fid:
+        :return:
+        """
+        self.node.write_typed_48B(fid, bytes(48), packet.PKTTYPE_contdas)
 
     def create_continuation_log(self, local_fid):
         """
@@ -118,23 +171,24 @@ class LogManager:
         self.deactivate_log(local_fid)
         self.activate_log(packets[1].fid, LOGTYPE_public)
         self.node.arm_dmx(packets[0].dmx)
-        self.node.push(packets)  # FIXME redundant with self.nd.write_typed_48B?
+        self.node.push(packets)
         return self.get_log(packets[1].fid)
 
-    def add_remote(self, fid): # 5.1
-        pass
+    def get_blob_function(self):
+        return lambda h: self.node.repo.fetch_blob(h)
 
     def get_log(self, fid):
         return self.node.repo.get_log(fid)
 
-    def write_eof(self, fid):
-        """
-        Append an end_of_file packet to the feed.
-        This closes the feed (but do not delete it)
-        :param fid:
-        :return:
-        """
-        self.node.repo.get_log(fid).write_eof(lambda msg: self.node.ks.sign(fid, msg))
+    def get_contact_fid(self, fid):
+        """ Get the fid of the public feed using the given feed"""
+        log = self.get_log(fid)
+        return log.parfid
+
+    def get_log_type(self, fid):
+        try:
+            return self.node.logs[util.hex(fid)]
+        except KeyError: return None
 
     def __save_keys(self):
         """
@@ -170,7 +224,6 @@ class LogManager:
         with open(prefix + "dmxt.json.part", "w") as f:
             f.write(util.json_pp(dmx))
         os.system(f"mv {prefix}dmxt.json.part {prefix}dmxt.json")
-        # dbg(BLU, f"DMX are saved")
         return util.json_pp(dmx)
 
     def __load_dmxt(self):
@@ -191,8 +244,6 @@ class LogManager:
     def loop(self):
         self.node.start()
         self.__save_keys()
-        time.sleep(2)
-        self.__load_dmxt()
 
         while True:
             time.sleep(2)
@@ -205,9 +256,9 @@ class LogManager:
 Action for logs:
 
 We have 3 types of logs:
-- local, private fid (root, aliases, apps, 'chess', 'chat' etc)
-- local, public fid (public, instance '0' of 'chess', inst '2' of 'chat', etc)
-- remote fid (public logs from another peer, same as public)
+- local, private fid ('root', 'aliases', 'apps', "chess", "chat" etc)
+- local, public fid ('public', instance '0' of "chess", inst '2' of "chat", etc)
+- remote fid (public logs from another peer)
 
 NB: The root fid is a bit special because we do not keep a live trace of it as we
 hardly use it at runtime.
@@ -229,10 +280,22 @@ For each fid, we have to take care of different aspects:
     - Application for the current app
     - SlidingWindow for the current instance (with one to many logs, one being local)
 
-We then have those actions:
+We want here to describe the successive operations needed when adding, loading or removing data
+from the disk or live usage. We keep traces on different states on:
+
+- disk
+- runtime list of application and app instances available as well as pointers to the current app and instance 
+- list of all logs with log type in node.py
+- remote peers (data to send through the network)
+- pointers to the current app (in identity.py) and instance (in application.py) 
+
+For modularity and correctness, we decided to delegate most of those operations to the log_manager.py.
+Operations 1.* (except 1.1), 3.* and 5.* are done in the `log manager`.
+We describe here those different actions. The number codes are used in the files directly. 
+
 - disk management at the beginning
     1.0 create on disk
-    1.1 load from disk (also remove log in node.logs)
+    1.1 load from disk
     1.2 allocate disk for remote
     1.3 delete on disk
 - runtime trace of 
@@ -240,7 +303,7 @@ We then have those actions:
     2.1 all instances of running app in application.instances
 - updating app or instance state on disk
     3.0 set data on disk (with a 'set' or packet) [in the parent fid, which is private]
-    3.1 [NB: done directly in 1.3] delete data on disk (with a 'delete' or packet) [in the parent fid, which is private]
+    3.1 delete data on disk (with a 'delete' packet) [in the parent fid, which is private]
 - management of the current state
     4.0 current app in identity
     4.1 current instance in application
@@ -248,6 +311,13 @@ We then have those actions:
     5.0 write a packet in local fid (disk) and propagate it
     5.1 add callback for the reception of a packet from remote
     5.2 write and end_of_file packet on disk and propagate it
+
+Each call to an operation 1.* (including 1.1) is followed by an `activate_log()` or `deactivate_log()`. This allows
+us to keep a live trace of all logs in the file system, including their log type, which allows for a 
+fast switch from different applications or instances.
+
+
+
 
 Can 5.1 be done in 1.1 or 1.2? I think so
 

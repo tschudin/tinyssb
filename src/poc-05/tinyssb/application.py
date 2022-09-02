@@ -4,9 +4,10 @@
 """
 __app__ = [
     'create_inst',
-    'delete_inst',
-    'terminate_inst',
     'resume_inst',
+    'close_inst',
+    'terminate_inst',
+    'delete_inst',
     'add_remote',
     'send',
     'set_callback'
@@ -34,6 +35,7 @@ class Application:
     def create_inst(self, name=None):
         """
         Create a new instance (game).
+        Returns the instance id (as a string).
         """
         # 1.0 (public), 2.1, 3.0, _, 4.1
         while self.instances.get(str(self.next_inst_id)) is not None:
@@ -44,8 +46,8 @@ class Application:
 
         # 3.0
         peer = { 'id': self.next_inst_id, 'il': fid, 'l': fid }
-        if name is not None:
-            peer['n'] = name
+        # if name is not None:
+        peer['n'] = name
         self.manager.set_in_log(self.log.fid, bipf.dumps(peer))
 
         # 2.1
@@ -53,44 +55,11 @@ class Application:
         peer['w'] = {}
         self.instances[ret] = peer
 
-
         # 4.1
         self.window = SlidingWindow(self, self.manager, self.next_inst_id, fid, self.callback)
 
         self.next_inst_id += 1
         return ret
-
-    def delete_inst(self, inst_id):
-        """
-        Delete an instance and erase its data on disk
-        """
-        # 1.3, 2.1, 3.1, _ + terminate_inst
-
-        self.terminate_inst(inst_id)
-
-        # 2.1
-        i = self.instances.pop(str(inst_id))
-
-        # 1.3 and 3.1
-        self.manager.delete_on_disk(i['il'], self.log.fid, bipf.dumps({ 'id': inst_id }))
-
-    def terminate_inst(self, inst_id):
-        """
-        Terminate a game or instance (write a final 'end_of_file' message)
-        Keep the data on disk as well as the inst in self.instances
-        """
-        # _, _, _, 4.1, 5.2
-        if self.instances.get(str(inst_id)) is None:
-            raise NotFoundTinyException(f"There is no instance with id = {inst_id}")
-
-        # 4.1
-        if self.window and self.window.id_number == inst_id:
-            self.window.close()
-        self.window = None
-
-        # 5.2
-        fid = self.instances[str(inst_id)]['il']
-        self.manager.write_eof(fid)
 
     def resume_inst(self, inst_id):
         """ Load and start a game/instance """
@@ -108,6 +77,46 @@ class Application:
                 self.window.add_remote(inst['w'][remote].get('r'))
         self.window.start()
 
+    def close_inst(self, inst_id):
+        """
+        Close a game or instance.
+        It can later be normally resumed with resume_inst()
+        """
+        # _, _, _, 4.1, _
+        if self.instances.get(str(inst_id)) is None:
+            raise NotFoundTinyException(f"There is no instance with id = {inst_id}")
+
+        # 4.1
+        if self.window and self.window.id_number == inst_id:
+            self.window.close()
+        self.window = None
+
+    def terminate_inst(self, inst_id):
+        """
+        Terminate a game or instance (write a final 'end_of_file' message)
+        Keep the data on disk as well as the inst in self.instances
+        """
+        # _, _, _, 4.1, 5.2
+        self.close_inst(inst_id)
+
+        # 5.2
+        fid = self.instances[str(inst_id)]['il']
+        self.manager.write_eof(fid)
+
+    def delete_inst(self, inst_id):
+        """
+        Delete an instance and erase its data on disk
+        """
+        # 1.3, 2.1, 3.1, _ + terminate_inst
+
+        self.terminate_inst(inst_id)
+
+        # 2.1
+        i = self.instances.pop(str(inst_id))
+
+        # 1.3 and 3.1
+        self.manager.delete_on_disk(i['il'], self.log.fid, bipf.dumps({ 'id': inst_id }))
+
     def add_remote(self, inst_id, remote_fid, with_):
         """ Add a member to an instance """
         # 1.2, 2.1, 3.0, 4.1, 5.1
@@ -117,7 +126,7 @@ class Application:
             raise NullTinyException("with_ is None")
 
         # 1.2
-        self.manager.allocate_for_remote(remote_fid)
+        self.manager.allocate_for_remote(remote_fid, with_)
 
         # 4.1
         if self.window and self.window.id_number == inst_id:
@@ -208,7 +217,7 @@ class Application:
                 out = self.instances.pop(inst_id)
                 self.manager.deactivate_log(out['l'])
                 for rem in out['w']:
-                    self.manager.deactivate_log(rem['r'])
+                    self.manager.deactivate_log(out['w'][rem]['r'])
             elif pkt.typ[0] == packet.PKTTYPE_set:
                 self.__extract_instance(bipf.loads(pkt.payload))
             elif pkt.typ[0] == packet.PKTTYPE_chain20:
@@ -240,11 +249,13 @@ class Application:
             self.manager.activate_log(payload['r'], LOGTYPE_remote)
             return
 
-        for field in ['l', 'n']:
-            tmp = payload.get(field)
-            if tmp is not None:
-                self.instances[inst_id][field] = tmp
-                if field == 'l':
-                    self.manager.activate_log(tmp, LOGTYPE_public)
+        tmp = payload.get('n')
+        if tmp is None:
+            tmp = ""
+        self.instances[inst_id]['n'] = tmp
 
+        tmp = payload.get('l')
+        if tmp is not None:
+            self.instances[inst_id]['l'] = tmp
+            self.manager.activate_log(tmp, LOGTYPE_public)
 # eof

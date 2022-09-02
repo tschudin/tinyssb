@@ -47,25 +47,26 @@ class NODE:  # a node in the tinySSB forwarding fabric
         if log_type == LOGTYPE_remote:
             # If it doesn't exist, allocate space for the remote log
             log = self.repo.get_log(fid)
-            if log is None:
-                log = self.repo.allocate_log(fid, 0, fid[:20])
-            self.request_latest(log, "Add new log")
+            if log is not None:
+                self.request_latest(log, "Add new log")
+                # log = self.repo.allocate_log(fid, 0, fid[:20])
 
     def deactivate_log(self, fid):
         hex_fid = util.hex(fid)
         try:
             self.ndlock.acquire()
             self.logs.pop(hex_fid)
+            del self.repo.open_logs[fid]
             self.ndlock.release()
         except KeyError:
             self.ndlock.release()
-            dbg(YEL, "There is no log with id = {hex_fid}")
+            # dbg(YEL, f"Deactivate log: there is no log with id = {hex_fid}")
 
     def start(self):
         self.ioloop = io.IOLOOP(self.faces, self.on_rx)
-        print('  starting thread with IO loop')
+        dbg(TERM_NORM, '  starting thread with IO loop')
         _thread.start_new_thread(self.ioloop.run, tuple())
-        print("  starting thread with arq loop")
+        dbg(TERM_NORM, "  starting thread with arq loop")
         _thread.start_new_thread(self.arq_loop, tuple())
 
     def arm_dmx(self, dmx, fct=None, comment=None):
@@ -230,7 +231,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
                     cnt -= 1
                     hptr = blob[-20:]
             except Exception as e:
-                print(e)
+                dbg(RED, e)
                 # dbg(GRA, f"    no entry for {h}.[{seq}]")
                 pass
             buf = buf[22:]
@@ -255,14 +256,14 @@ class NODE:  # a node in the tinySSB forwarding fabric
         self.arm_dmx(d)  # remove current DMX handler, request was satisfied
         # FIXME: instead of eager blob request, make this policy-dependent
         if pkt.typ[0] == packet.PKTTYPE_contdas:  # switch feed
-            dbg(GRE, f'  told to stop old feed {util.hex(pkt.fid)[:20]}../{pkt.seq}')
+            dbg(GRA, f'  told to stop old feed {util.hex(pkt.fid)[:20]}../{pkt.seq}')
             # FIXME: security checks (can this feed still be continued etc)
             newFID = pkt.payload[:32]
             # Redundant with session._process() in callback for instances, do nothing
             feed = self.repo.allocate_log(newFID, 0, newFID[:20])  # install cont.
             if feed is None:
                 feed = self.repo.get_log(newFID)
-            dbg(GRE, f'  ... and to switch to new feed {util.hex(newFID)[:20]}..')
+            dbg(GRA, f'  ... and to switch to new feed {util.hex(newFID)[:20]}..')
             # feed.subscription += 1
             # feed.set_append_cb(oldfeed.acb)
             # oldfeed = None
@@ -361,7 +362,7 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 # dbg(GRA, f"SND {len(wire)} want request to dmx={d} for {h}.[{seq}]")
 
     def request_chain(self, pkt):
-        print("request_chain", util.hex(pkt.fid)[:8], pkt.seq,
+        dbg(YEL, "request_chain", util.hex(pkt.fid)[:8], pkt.seq,
               util.hex(pkt.chain_nextptr) if pkt.chain_nextptr else None)
         hptr = pkt.chain_nextptr
         if hptr == None: return
@@ -414,8 +415,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
                         self.request_chain(pkt)
                 for r in rm:
                     self.pending_chains.remove(pkt)
-                self.next_timeout[0] = now + 9
-                time.sleep(10)
+                self.next_timeout[0] = now + 1
+                time.sleep(2)
             else:
                 time.sleep(self.next_timeout[0] - now)
 

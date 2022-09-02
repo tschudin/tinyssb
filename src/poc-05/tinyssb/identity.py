@@ -4,6 +4,7 @@
 __all__ = [
     'follow',
     'unfollow',
+    'get_contact_alias',
     'resume_app',
     'define_app',
     'delete_app',
@@ -75,8 +76,14 @@ class Identity:
         except KeyError:
             raise NotFoundTinyException("Contact not deleted: not found in contact list.")
 
-        # 1.3 and 3.1
-        self.manager.delete_on_disk(public_key, self.aliases, public_key)
+        # 3.1
+        self.manager.delete_in_log(self.aliases, public_key)
+
+    def get_contact_alias(self, public_key):
+        for p in self.directory['aliases'].keys():
+            if self.directory['aliases'][p] == public_key:
+                return p
+        return None
 
     def resume_app(self, app_name):
         """

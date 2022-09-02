@@ -21,14 +21,14 @@ class SlidingWindow:
         self.pending_fid = None # pending feed (oldest unacked cont feed), test needed
         self.callback = callback
         self.started = False
-        self.window_length = 5
+        self.window_length = 3
 
     def add_remote(self, remote_fid):
         """ Add a remote peer to the instance and sync with it """
         rf = self.manager.get_log(remote_fid)
         if rf is None:
             raise Exception(f"SESS: remote feed {remote_fid.hex()} not found")
-        rf.set_append_cb(self.callback)
+        rf.set_append_cb(self.on_incoming)
         self.rfd.add(rf)
         self.manager.activate_log(remote_fid, node.LOGTYPE_remote)
 
@@ -56,7 +56,7 @@ class SlidingWindow:
         if self.started:
             self._process(pkt)
         else:
-            print("not started yet")
+            dbg(MAG, "not started yet")
 
     def close(self):
         # TODO
@@ -64,34 +64,35 @@ class SlidingWindow:
         pass
 
     def _process(self, pkt):
-        print("SESS _processing")
+        # print("SESS _processing")
         if pkt.typ[0] == packet.PKTTYPE_contdas:
-            dbg(MAG, f"process packet: {pkt.payload[:32]} + {pkt.typ} + {pkt.fid}")
+            # dbg(MAG, f"Continuation packet: {pkt.payload[:32]} + {pkt.typ} + {pkt.fid}")
             self.app._update_inst_with_old_remote(self.id_number, pkt.payload[:32], pkt.fid)
             self.add_remote(pkt.payload[:32])
-            # self.nd.repo.del_log(pkt.fid)
         elif pkt.typ[0] == packet.PKTTYPE_iscontn:
             # dbg(GRE, f"SESS: processing iscontn")
             # should verify proof
             oldFID = pkt.payload[:32]
             oldFeed = self.manager.get_log(oldFID)
-            if not oldFeed.getfront[0] == pkt.payload[32:36]:
+            if not oldFeed.getfront()[0] == int.from_bytes(pkt.payload[32:36], "big"):
                 dbg(RED, f"Continue feed: sequence number doesn't match:"
-                         f" {oldFeed.getfront[0]} vs {pkt.payload[32:36]}")
+                         f" {oldFeed.getfront()[0]} vs {int.from_bytes(pkt.payload[32:36], 'big')}")
                 return
             # FIXME one could check the hash too, but it is now computed on
             #  the last bytes of the signature which is not stored
             msg = oldFID # + ??
             self.write(msg, packet.PKTTYPE_acknldg)
         elif pkt.typ[0] == packet.PKTTYPE_acknldg:
-            dbg(GRE, f"SESS: processing ack")
+            if self.manager.get_log_type(pkt.payload[:32]) == node.LOGTYPE_remote:
+                return # Acknowledgement for a remote log
             if self.pending_fid is None:
-                print("no log to remove")
+                dbg(MAG, "no log to remove")
                 return
-            dbg(GRE, f"SESS: removing feed {util.hex(self.pending_fid)[:20]}..")
+            if self.manager.get_log(self.pending_fid) is None:
+                dbg(MAG, "log already removed")
+            dbg(GRA, f"SESS: removing feed {util.hex(self.pending_fid)[:20]}..")
 
-            self.manager.delete_on_disk(self.pending_fid, self.app.log.fid,
-                bipf.dumps({ 'id': self.id_number}))
+            self.manager.delete_one_log(self.pending_fid)
         elif pkt.typ[0] == packet.PKTTYPE_ischild:
             pass
         elif pkt.typ[0] == packet.PKTTYPE_mkchild:
@@ -104,7 +105,7 @@ class SlidingWindow:
                 # Blobs need an additional step to extract the data
                 pkt.undo_chain(self.manager.get_blob_function())
             try:
-                self.callback(pkt.payload)
+                self.callback(pkt.payload, self.manager.get_contact_fid(pkt.fid), pkt, self.manager.get_log(pkt.fid))
             except IndexError as e:
                 dbg(ERR, f"Error for {e}")
 

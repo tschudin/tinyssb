@@ -211,7 +211,7 @@ class LOG:
         #     dbg(BLU, f"\n{i}: {util.hex(self.file.read(120))}")
         self.file.seek(0)
         hdr = self.file.read(120)
-        hdr = hdr[4:]  # first 12B unused
+        hdr = hdr[4:]  # first 4B unused
         self.fid = hdr[:32]
         self.parfid = hdr[32:64]
         self.parseq = int.from_bytes(hdr[64:68], 'big')
@@ -286,12 +286,14 @@ class LOG:
         :param signfct: signature fct
         :return: updated self
         """
+        # FIXME assert that feed wasn't terminated by eof
         assert len(buf48) == 48
         e = packet.PACKET(self.fid, self.frontS + 1, self.frontM)
         e.mk_typed_entry(typ, buf48, signfct)
         return self.append(e.wire)
 
     def write_eof(self, signfct):
+        # FIXME delete: bypasses lock and do not push. Use node.write_typed_48B instead
         return self.write_typed_48B(bytes(48), packet.PKTTYPE_contdas, signfct)
 
     def prepare_chain(self, buf, signfct):  # returns list of packets, or None
