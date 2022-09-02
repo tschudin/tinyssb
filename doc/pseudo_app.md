@@ -1,4 +1,5 @@
 # Pseudocode for a chat app using TinySSB
+This file is outdated (2022-09-02)
 
 _draft 2022-05-10_
 

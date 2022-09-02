@@ -16,5 +16,5 @@ working globally and without the need for carriers.
 
 - [Packet specification](doc/low-level-concepts.md) (MarkDown)
 
-- [API documentation](doc/API-documentation.md)
+- [API documentation](doc/API-documentation.md) (MarkDown)
 ---

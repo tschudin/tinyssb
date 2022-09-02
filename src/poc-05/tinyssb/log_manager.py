@@ -246,7 +246,7 @@ class LogManager:
         self.__save_keys()
 
         while True:
-            time.sleep(2)
+            time.sleep(1)
             self.__save_dmxt()
             self.__save_keys()
         pass
@@ -317,25 +317,10 @@ us to keep a live trace of all logs in the file system, including their log type
 fast switch from different applications or instances.
 
 
-
-
-Can 5.1 be done in 1.1 or 1.2? I think so
-
-Currently, points 2.x, 4.x and most of 1.1 is tackled in application and identity.
-
-Please note that 1.0 creates a fid but 3.0 writes to another one, the parents fid
-
-5.0 is not conducted at start up, but must be made available for later use
-
-Also keep track of node.logs!!<
-
 Each fid should be tackled by one of the 1.x function every time
-TinySSB is launched except the app subfeeds that has to be tackled 
+TinySSB is launched except the app subfeeds that have to be tackled 
 when the app is launched / created. In addition, it must record its
-type (public/private/remote) in LogManager.logs
-
+type (public/private/remote) in Node.logs
 
 """
-#  TODO deletion
-#  TODO 5.1
-#   Also, all of public feed's protocol
+# eof

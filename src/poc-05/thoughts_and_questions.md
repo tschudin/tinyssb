@@ -1,5 +1,5 @@
 # Thoughts and Questions
-
+This file is outdated (2022-09-02)
 @author Etienne Mettaz
 
 ## Abstract

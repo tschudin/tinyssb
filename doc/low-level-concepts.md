@@ -1,10 +1,6 @@
 # Low-Level Secure Scuttlebutt Packet Spec
 
-_draft 2022-05-02_
-Missing:
-
-- Packet types 6
-- End of file
+_2022-09-02_
 
 ## Abstract
 
@@ -284,12 +280,14 @@ A log entry has a 48 Bytes payload, which content must comply to the
 specification of its type (given by the field `TYP`). We will describe the 9
 types that are described as of this version of TinySSB.
 
-### Type 0: Plain Text
+### Content packets
+
+#### Type 0: Plain Text
 
 Packet type 0 (`0x00`) is a plaintext without specific field. It can contain up
 to 48B of content.
 
-### Type 1: Chain
+#### Type 1: Chain
 
 If more than the fixed-size 48B payload should be added to the log
 (type 0), a chain can be used. As each packet must contain 120B, we split the
@@ -321,9 +319,9 @@ and its length must be considered when filling the last packet.
   
           <----- 48B payload ---->
           <----  28B ----> <-20B->
-  +----+-+----------------+-------+- . . . ---+
+  +----+-+---. . .--------+-------+- . . . ---+
   | DMX|T| LEN | content1 | HPTR1 | signature |   log entry
-  +----+-+----------------+-------+- . . . ---+
+  +----+-+---. . .--------+-------+- . . . ---+
                               |
      -------------------------' start of side chain (hash of blob 1)
     /
@@ -354,7 +352,7 @@ than 28, the ```HPTR1``` field consists of zeros as no blobs are necessary.
 The five following packet types concern the creation and management of
 sub-feeds.
 
-#### Type 4 and 5: Create a sub-feed
+#### Type 4 and 5: Declare a new sub-feed
 
 One can declare a new feed by using an entry with type 4 (`0x04`) for a child
 (vertical) feed or type 5 (`0x05`) for a continued (horizontal) feed. The same 
@@ -368,6 +366,8 @@ format is used (only the field `TYP` is different):
 This can happen at any time in a feed but in
 case of a continued feed, the entry must be the last one.
 
+#### Type 2 and 3: Start a new sub-feed
+
 The new feed can now be created, which first entry must be of type 2 (`0x02`)
 (for a child feed) or 3 (`0x03`). Again, only the `TYP` field is different.
 
@@ -380,9 +380,7 @@ The new feed can now be created, which first entry must be of type 2 (`0x02`)
 Note that the fields `PFID` and `PSEQ` refer to the feed entry of the
 parent/predecessor feed, thus do not match the FID and SEQ fields.
 
-TODO: type 6, explain hash better?
-
-### Type 6: Acknowledgement
+#### Type 6: Acknowledgement
 
 One of the purposes of the continuation feed is to discard old data to keep 
 only the bare minimum, especially for devices with limited capacity. But 
@@ -397,12 +395,14 @@ This packet contains the following fields:
 - PAD     :  16 Bytes   padding
 ```
 
-## Type 7 and 8: Set and Delete
+### Abstract data-type management
+
+#### Type 7 and 8: Set and Delete
 
 Some feeds are used for managing abstract data types, as explained in 
-[Documentation](API-documentation.md). To make the best use of the limited 48 bytes
-and as we can have up to 128 fields types, we define two new packet types: `set`
-(`0x07`) and `delete` (`0x08`). The content is free (usually 
+[Documentation](API-documentation.md). To make the best use of the limited 
+48 bytes and as we can have up to 128 fields types, we define two new packet 
+types: `set` (`0x07`) and `delete` (`0x08`). The content is free (usually 
 [BIPF](https://github.com/ssbc/bipf) encoded) and is a handy shortcut for adding
 or removing data to a list.
 
@@ -417,7 +417,7 @@ therefore maintains two "expectation tables", one for logs (DEMUX_TBL) and one
 for blobs (CHAIN_TBL).
 
 The DEMUX_TBL table is populated by ```(DMX, feedID)``` tuples for each feed
-that a node subscribed for: the node can exactly predict which`PFX`,`FID`,
+that a node subscribed for: the node can exactly predict which `PFX`, `FID`,
 `SEQ` and `PREV` a packet must have in order to be a valid extension of the
 local log replica. As soon as a valid entry was received, the old DMX value can
 be removed from the DEMUX_TBL and is replaced by the next one, based on the
@@ -430,9 +430,3 @@ value to the CHAIN_TBL table (which is the first hash pointer of this chain,
 found in the payload of the received log entry). When the first blob is
 received, the node can replace this expectation with the next hash pointer found
 in the received blob, etc
-
-## Request a log or blob entry
-
-```python
-# TODO
-```
