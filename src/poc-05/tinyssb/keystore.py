@@ -2,7 +2,6 @@
 
 # tinyssb/keystore.py
 # 2022-04-09 <christian.tschudin@unibas.ch>
-import time
 from collections import OrderedDict
 
 import bipf
@@ -10,7 +9,6 @@ import pure25519
 from . import util
 
 # ----------------------------------------------------------------------
-from .dbg import dbg, GRE, YEL
 
 class Keystore:
 

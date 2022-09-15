@@ -3,6 +3,7 @@
 """
 __all__ = [
     'follow',
+    'rename',
     'unfollow',
     'get_contact_alias',
     'resume_app',
@@ -12,6 +13,7 @@ __all__ = [
 ]
 """
 import _thread
+import time
 
 import bipf
 from . import packet, application, log_manager
@@ -37,7 +39,10 @@ class Identity:
 
     def follow(self, public_key, alias):
         """
-        Subscribe to the feed with the given pk
+        Subscribe to the feed with the given pk.
+
+        If the public key is already in the contact list, update the name to
+        the given key
         :param public_key: bin encoded feedID
         :param alias: name to give to the peer
         :return: True if succeeded (if alias and public key were not yet in db)
@@ -51,7 +56,7 @@ class Identity:
             if value == public_key:
                 raise AlreadyUsedTinyException(f"Public key is already in contact list.")
         if bipf.encodingLength(alias) > 16:
-            raise TooLongTinyException(f"Alias {alias} is too long")
+            raise TooLongTinyException(f"Alias {alias} is too long ({bipf.encodingLength(alias)})")
 
         # 1.2
         self.manager.allocate_for_remote(public_key)
@@ -61,6 +66,28 @@ class Identity:
 
         # 3.0
         self.manager.set_in_log(self.aliases, public_key+bipf.dumps(alias))
+
+        # Add callback
+        self.manager.get_log(public_key).set_append_cb(self.manager.public_cb)
+
+    def rename(self, old_alias, new_alias):
+        """
+        Rename a contact.
+        Fix me: the name of the instances is not updated
+        :param old_alias: the old contact name
+        :param new_alias: the new contact name
+        :return:
+        """
+        public_key = self.directory['aliases'].get(old_alias)
+        if public_key is None:
+            raise NotFoundTinyException(f"No contact is named {old_alias}")
+        if self.directory['aliases'].get(new_alias):
+            raise AlreadyUsedTinyException(f"Follow: alias {new_alias} already exists.")
+        for key, value in self.directory['aliases'].items():
+            if value == public_key:
+                self.directory['aliases'][new_alias] = public_key
+                self.directory['aliases'].pop(key)
+                return # Name updated
 
     def unfollow(self, alias):
         """
@@ -80,6 +107,11 @@ class Identity:
         self.manager.delete_in_log(self.aliases, public_key)
 
     def get_contact_alias(self, public_key):
+        """
+        Get the human-readable alias name
+        :param public_key: the public key (byte array)
+        :return:
+        """
         for p in self.directory['aliases'].keys():
             if self.directory['aliases'][p] == public_key:
                 return p
@@ -97,12 +129,12 @@ class Identity:
 
         # 4.0
         log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
-        self.__current_app = application.Application(self.manager, log)
+        self.__current_app = application.Application(self.manager, log, self.directory['apps'][app_name]['appID'])
         return self.__current_app
 
     def define_app(self, app_name, appID):
         """
-        Create an app-specific subfeed (where instances will be announced)
+        Create an app-specific sub-feed (where instances will be announced)
         :param app_name: a (locally) unique name
         :param appID: a (globally) unique 32 bytes ID
         :return: instance of Application object
@@ -126,7 +158,7 @@ class Identity:
 
                 # 4.0
                 log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
-                self.__current_app = application.Application(self.manager, log)
+                self.__current_app = application.Application(self.manager, log, appID)
                 return self.__current_app
 
         # 1.0
@@ -139,7 +171,7 @@ class Identity:
         self.manager.set_in_log(self.apps, appID+bipf.dumps(app_name))
 
         # 4.0
-        self.__current_app = application.Application(self.manager, self.manager.get_log(fid))
+        self.__current_app = application.Application(self.manager, self.manager.get_log(fid), appID)
 
         return self.__current_app
 
@@ -157,7 +189,7 @@ class Identity:
             raise TinyException(f"AppID do not match '{app_name}'")
 
         log = self.manager.get_log(self.directory['apps'][app_name]['fid'])
-        app_inst = application.Application(self.manager, log)
+        app_inst = application.Application(self.manager, log, self.directory['apps'][app_name]['appID'])
         for inst in app_inst.instances.copy():
             app_inst.delete_inst(inst)
 
@@ -200,6 +232,8 @@ class Identity:
                 name = bipf.loads(pkt.payload[32:])
                 assert self.directory['aliases'].get(name) is None
                 self.directory['aliases'][name] = fid
+                # add callback
+                self.manager.get_log(fid).set_append_cb(self.manager.public_cb)
 
     def __load_apps(self):
         """

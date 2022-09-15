@@ -25,6 +25,8 @@ class SlidingWindow:
 
     def add_remote(self, remote_fid):
         """ Add a remote peer to the instance and sync with it """
+        if remote_fid is None:
+            return
         rf = self.manager.get_log(remote_fid)
         if rf is None:
             raise Exception(f"SESS: remote feed {remote_fid.hex()} not found")
@@ -48,7 +50,7 @@ class SlidingWindow:
             if self.pending_fid is None:
                 self.pending_fid = self.local_feed.fid
             self.local_feed = self.manager.create_continuation_log(self.local_feed.fid)
-            self.app._update_inst(self.id_number, None, None, None, self.local_feed.fid)
+            self.app.update_inst(self.id_number, None, self.local_feed.fid)
         self.manager.write_in_log(self.local_feed.fid, buffer, typ)
 
     def on_incoming(self, pkt):
@@ -70,7 +72,7 @@ class SlidingWindow:
             self.app._update_inst_with_old_remote(self.id_number, pkt.payload[:32], pkt.fid)
             self.add_remote(pkt.payload[:32])
         elif pkt.typ[0] == packet.PKTTYPE_iscontn:
-            # dbg(GRE, f"SESS: processing iscontn")
+            # dbg(GRE, f" SESS: processing iscontn")
             # should verify proof
             oldFID = pkt.payload[:32]
             oldFeed = self.manager.get_log(oldFID)
@@ -92,7 +94,7 @@ class SlidingWindow:
                 dbg(MAG, "log already removed")
             dbg(GRA, f"SESS: removing feed {util.hex(self.pending_fid)[:20]}..")
 
-            self.manager.delete_one_log(self.pending_fid)
+            # self.manager.delete_one_log(self.pending_fid)
         elif pkt.typ[0] == packet.PKTTYPE_ischild:
             pass
         elif pkt.typ[0] == packet.PKTTYPE_mkchild:
@@ -128,4 +130,30 @@ class SlidingWindow:
             # dbg(RED, "sess has started (catchup done, switching to live processing)")
         self.started = True
 
+    def replay(self, il, ir_list):
+        for ir in ir_list:
+            self.__replay(ir, False)
+        self.__replay(il, True)
+
+    def __replay(self, initial, me):
+        if not self.started:
+            self.start()
+        f = self.manager.get_log(initial)
+        i = 1
+        while i <= len(f):
+            pkt = f[i]
+            if pkt.typ[0] == packet.PKTTYPE_contdas:
+                f = self.manager.get_log(pkt.payload[:32])
+                i = 1
+            else:
+                if pkt.typ[0] <= 1: # plain or chain
+                    if pkt.typ[0] == packet.PKTTYPE_chain20:
+                        pkt.undo_chain(self.manager.get_blob_function())
+                    if me:
+                        dbg(MAG, f"I sent \"{bipf.loads(pkt.get_content())}\"")
+                    else:
+                        dbg(RED, f"I received \"{bipf.loads(pkt.get_content())}\" "
+                                 f"from {self.manager.get_contact_alias(self.manager.get_contact_fid(pkt.fid))} "
+                                 f"(#{pkt.seq})")
+                i += 1
 # eof

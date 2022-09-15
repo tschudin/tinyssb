@@ -12,6 +12,7 @@ import os
 
 import bipf
 from . import packet, keystore, identity, util, repository, io, node
+from .dbg import dbg, GRE
 
 def erase_all():
     """
@@ -60,6 +61,7 @@ def generate_id(peer_name):
         root.repo.mk_child_log(root.me, root.ks.get_signFct(root.me), fid,
                                root.ks.get_signFct(fid), name)
         default[n] = fid
+    dbg(GRE, f"Create identity \"{peer_name}\"")
     return identity.Identity(root, peer_name, default)
 
 def load_identity(peer_name):

@@ -212,7 +212,7 @@ class UDP_MULTICAST(FACE):
     
     def __init__(self, addr):
         super().__init__()
-        print("  creating face for UDP multicast group")
+        # print("  creating face for UDP multicast group")
         self.snd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.snd_sock.bind(mk_addr('0.0.0.0',0))
         if sys.implementation.name != 'micropython':
@@ -239,7 +239,7 @@ class UDP_MULTICAST(FACE):
         except Exception as e:
             print("error in setting UDP multicast", e)
         self.my_addr = addr
-        print("    address is", addr)
+        # print("    address is", addr)
 
         self.neigh = UDP_MULTICAST_NEIGHBOR(self, self.snd_sock)
         self.neighbors = { 1: self.neigh }

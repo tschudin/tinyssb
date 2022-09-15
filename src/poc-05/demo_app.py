@@ -1,6 +1,6 @@
 from tinyssb import util
 from tinyssb.dbg import *
-from tinyssb.exception import NotFoundTinyException
+from tinyssb.exception import NotFoundTinyException, TinyException, NullTinyException
 
 
 class DEMO:
@@ -8,14 +8,15 @@ class DEMO:
     help = { '?': "Print this help text",
         'follow': "Follow a new peer. The public key (hex encoded) and the alias are given as argument",
         'unfollow': "Unfollow a new peer. The alias is given as argument",
+        'rename': 'Rename a contact. The old and new aliases are given',
         'contact_list': "Get a list of the contacts",
         'publish': 'Write something in the public feed',
         'create_inst': 'Create an instance/game of the app. A name can optionally be given as argument',
-        'add_remote': 'Add a remote participant to the current instance/game. The peer name is given as argument',
+        'add_member': 'Add a remote participant to the current instance/game. The peer name is given as argument',
         'resume_inst': 'Resume an existing instance/game of the app. The instance id must be given as argument',
         'close_inst': 'Closes an instance/game (it can be normally restarted later)',
-        'send': 'Send a message to an instance'
-    }
+        'replay': 'Replay all messages from an instance. Messages are ordered by feeds but not totally',
+        'send': 'Send a message to an instance' }
 
     def __init__(self, identity, app):
         self.identity = identity
@@ -25,12 +26,14 @@ class DEMO:
             '?': self.cmd_help,
             'follow': self.cmd_follow,
             'unfollow': self.cmd_unfollow,
+            'rename': self.cmd_rename,
             'contact_list': self.cmd_contact_list,
             'publish': self.cmd_publish,
             'create_inst': self.cmd_create_inst,
-            'add_remote': self.cmd_add_remote,
+            'add_member': self.cmd_add_member,
             'resume_inst': self.cmd_resume_inst,
             'close_inst': self.cmd_close_inst,
+            'replay': self.cmd_replay,
             'send': self.cmd_send
         }
 
@@ -55,7 +58,19 @@ class DEMO:
             return
 
         self.identity.follow(public_key, arg_list[1])
-        dbg(BLU, f"{arg_list[1]} added to your contacts")
+        dbg(GRE, f"{arg_list[1]} added to your contacts")
+
+    def cmd_rename(self, arg_list):
+        if len(arg_list) != 2:
+            dbg(YEL, f"\"Rename\" needs 2 arguments (old alias and new alias), {len(arg_list)} were given")
+            return
+        try:
+            self.identity.rename(arg_list[0], arg_list[1])
+        except ValueError as e:
+            dbg(YEL, f"Value error: {e}")
+            return
+
+        dbg(GRE, f"{arg_list[0]} renamed to {arg_list[1]}")
 
     def cmd_unfollow(self, arg_list):
         if len(arg_list) != 1:
@@ -64,7 +79,7 @@ class DEMO:
 
         self.identity.unfollow(arg_list[0]),
 
-        dbg(BLU, f"{arg_list[0]} removed from your contacts")
+        dbg(GRE, f"{arg_list[0]} removed from your contacts")
 
     def cmd_contact_list(self, arg_list):
         dbg(GRE, f"{self.identity.directory['aliases'].keys()}")
@@ -76,11 +91,14 @@ class DEMO:
 
         self.identity.write_to_public(arg_list[0]),
 
-    def cmd_create_inst(self, name=None):
-        self.current_instance = self.app.create_inst(name)
-        dbg(BLU, f"New instance created with id = {self.current_instance}")
+    def cmd_create_inst(self, arg_list):
+        try:
+            self.current_instance = self.app.create_inst(arg_list)
+        except TinyException as e:
+            dbg(YEL, f"Error: {e}")
+        dbg(GRE, f"New instance created with id = {self.current_instance}")
 
-    def cmd_add_remote(self, arg_list):
+    def cmd_add_member(self, arg_list):
         if len(arg_list) != 2:
             dbg(YEL, f"\"Add remote\" needs 2 arguments (remote feed ID and alias), {len(arg_list)} were given")
             return
@@ -91,8 +109,8 @@ class DEMO:
             dbg(YEL, f"Key error: there is no contact named \"{arg_list[1]}\"")
             return
         try:
-            self.app.add_remote(self.current_instance, remote_fid, with_)
-            dbg(BLU, f"{arg_list[1]} added to the chat \"{self.current_instance}\"")
+            self.app.add_member(self.current_instance, remote_fid, with_)
+            dbg(GRE, f"{arg_list[1]} added to the chat \"{self.current_instance}\"")
 
         except NotFoundTinyException as e:
             dbg(YEL, f"NotFoundTinyException: {e}. (Should you create one?)")
@@ -106,7 +124,7 @@ class DEMO:
         try:
             self.app.resume_inst(arg_list[0])
             self.current_instance = arg_list[0]
-        except NotFoundTinyException as e:
+        except NotFoundTinyException:
             dbg(YEL, f"Instance {arg_list[0]} was not found. Valid ids are:\n{self.app.instances.keys()}")
 
     def cmd_close_inst(self, arg_list):
@@ -115,6 +133,12 @@ class DEMO:
             self.current_instance = None
         except NotFoundTinyException:
             dbg(YEL, f"No instance was closed")
+
+    def cmd_replay(self, arg_list):
+        try:
+            self.app.replay()
+        except NullTinyException as e:
+            dbg(YEL, f"{e}")
 
     def cmd_send(self, arg_list):
         if self.current_instance is None:
@@ -129,6 +153,9 @@ class DEMO:
         sys.exit(0)
 
     def demo_loop(self, name):
+        if name == 'Alice':
+            self.cmd_follow(['6a7599019df4b5bf09781b6a3653946c278a5cdc236ea60d917ede9ee3cf314d', 'Ed'])
+            self.cmd_follow(['48b3d5930f8ea1300a3ad33a8220a0dc7943e671e88946b11cc2b206a4812582', 'Fred'])
         cmd = ""
         dbg(GRE, f"Welcome to tiny chat. Send \"?\" to see the different commands options.")
         while True:
@@ -137,7 +164,7 @@ class DEMO:
             except (EOFError, KeyboardInterrupt) as e:
                 self.cmd_exit(e)
             cmd = cmd.split(" ")
-            lst = [c for c in self.help if c.startswith(cmd[0])]  # find corr. command ("startwith" is enough)
+            lst = [c for c in self.help if c.startswith(cmd[0])]  # find corr. command ("startswith" is enough)
 
             if len(cmd) == 1 and cmd[0] == '':
                 print("Empty command, new loop iteration")
@@ -152,13 +179,13 @@ class DEMO:
             try:
                 self.cmd_table[lst[0]](cmd[1:])
             except TypeError as e:
-                dbg(RED, f"Error: {e}")
+                dbg(YEL, f"Error: {e}")
 
             try:
                 inst_name = ""
                 if self.app.instances[self.current_instance]['n']:
                     inst_name = f" ({self.app.instances[self.current_instance]['n']})"
-                dbg(BLU, f"Current instance is {self.current_instance}{inst_name}.")
+                dbg(GRA, f"Current instance is {self.current_instance}{inst_name}.")
             except KeyError:
-                dbg(BLU, f"No instance is currently running")
+                dbg(YEL, f"No instance is currently running")
 # eof

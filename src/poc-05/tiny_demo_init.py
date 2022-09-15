@@ -15,10 +15,10 @@ def start_peer(name):
     """
     peer = tiny.load_identity(name)
 
-    app = peer.resume_app("chat")
-    app.set_callback(lambda msg, from_, pkt, log: callback(peer, name, msg, from_, pkt, log))
-    app.resume_inst('0')  # '0' is the default key for the first app
-    return peer, app
+    appli = peer.resume_app("chat")
+    appli.set_callback(lambda msg, from_, pkt, log: callback(peer, name, msg, from_, pkt, log))
+    appli.resume_inst('0')  # '0' is the default key for the first app
+    return peer, appli
 
 def callback(peer, name, msg, from_, packet, log):
     """
@@ -34,6 +34,7 @@ def callback(peer, name, msg, from_, packet, log):
         msg = bipf.loads(msg)
     except KeyError: msg = str(msg)
     except TypeError: msg = str(msg)
+    except UnicodeDecodeError: msg = str(msg)
     dbg(RED, f"{name} received \"{msg}\" from {peer.get_contact_alias(from_)} (#{packet.seq})")
 
 def initialise():
@@ -44,33 +45,51 @@ def initialise():
     tiny.erase_all()
     peers = {}
     # For each peer, generate the default logs, create an app with one instance
-    for n in ["Alice", "Bob", "Charlie"]:
-        peers[n] = tiny.generate_id(n)
-        app = peers[n].define_app("chat", APP_ID)
-        assert app.create_inst("Chat (Alice, Bob and Charlie)") == '0'
+    name_list = ["Alice", "Bob", "Charlie"]
 
-    # Add mutual trust (follow) for the peers and add them to the chat group
-    for n in ["Alice", "Bob", "Charlie"]:
-        for friend in ["Alice", "Bob", "Charlie"]:
+    for n in ["Alice", "Bob"]:
+        peers[n] = tiny.generate_id(n)
+        peers[n].define_app("chat", APP_ID)
+
+    peers['Charlie'] = tiny.generate_id('Charlie')
+    appli = peers['Charlie'].define_app("chat", APP_ID)
+
+    # Add mutual trust (follow) for the peers
+    for n in name_list:
+        for friend in name_list:
             if friend != n:
                 peers[n].follow(peers[friend].public, friend)
-                game_remote_log = peers[friend].resume_app("chat").instances['0']['l']
-                peers[n].resume_app("chat").add_remote('0', game_remote_log, peers[friend].public)
 
-    dbg(YEL, f"\n{util.json_pp(peers['Alice'].manager.node.logs)}")
+    # Create the instance in only one peer who automatically invites the others to join
+    appli.create_inst(['Alice', 'Bob'])
+    return peers
+
+def wait_for_instances(peers):
+    for p in peers:
+        a = peers[p].resume_app("chat")
+        a.resume_inst('0')
+        for m in a.instances['0']['m']:
+            if a.instances['0'].get('n') == '':
+                raise NotFoundTinyException("Instance not fully initiated yet")
+            if a.instances['0']['m'][m].get('r') is None:
+                raise NotFoundTinyException("Instance not fully initiated yet")
+    return True
 
 if __name__ == "__main__":
     if sys.argv[1] in ["Alice", "Bob", "Charlie"]:
-        name = sys.argv[1]
-        identity, app = start_peer(name)
+        peer_name = sys.argv[1]
+        identity, app = start_peer(peer_name)
         demo = DEMO(identity, app)
-        demo.demo_loop(name)
-        # demo_loop(name, app)
+        demo.demo_loop(peer_name)
 
     elif sys.argv[1] == "init":
-        initialise()
+        peer_list = initialise()
+        while True:
+            # Wait for sync: all peers must create the instance first
+            try:
+                wait_for_instances(peer_list)
+                exit(0)
+            except NotFoundTinyException:
+                time.sleep(0.5)
 
 # eof
-
-
-

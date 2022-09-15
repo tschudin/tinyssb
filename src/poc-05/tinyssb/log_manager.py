@@ -5,7 +5,7 @@ import json
 import os
 
 import bipf
-from tinyssb import packet, util
+from tinyssb import packet, util, application
 from tinyssb.dbg import *
 from tinyssb.exception import *
 from tinyssb.node import LOGTYPE_private, LOGTYPE_public, LOGTYPE_remote
@@ -18,6 +18,7 @@ class LogManager:
         self.node.activate_log(default_logs['aliases'], LOGTYPE_private)
         self.node.activate_log(default_logs['apps'], LOGTYPE_private)
         self.node.activate_log(default_logs['public'], LOGTYPE_public)
+
         self.__save_key_lock = _thread.allocate_lock()
 
     def activate_log(self, fid, typ):
@@ -121,7 +122,7 @@ class LogManager:
         """
         Delete a value in a log.
         Append-only log does not allow for deletion, this just writes in the log
-        that the element os no longer included in the Abstract Data Type formed by the feed.
+        that the element os no longer included in the Abstract Data Type formed by the feed
         :param fid: feed id containing the ADT
         :param data: the data to write in the payload
         """
@@ -130,7 +131,7 @@ class LogManager:
 
     def write_in_log(self, fid, data, typ=packet.PKTTYPE_plain48): # 5.0
         """
-        Write a packet in a fid.
+        Write a packet in a fid
         :param fid: feed id of the fid to write to
         :param data: the data to write (string)
         :param typ: the type of the packet
@@ -142,6 +143,9 @@ class LogManager:
         else:
             data += bytes(48 - len(data))
             self.node.write_typed_48B(fid, data, typ)
+
+    def write_to_public(self, data):
+        self.write_in_log(self.identity.public, data)
 
     def add_remote(self, fid): # 5.1
         pass
@@ -189,6 +193,83 @@ class LogManager:
         try:
             return self.node.logs[util.hex(fid)]
         except KeyError: return None
+
+    def get_contact_alias(self, public_key):
+        """
+        Get the human-readable alias name
+        :param public_key: the public key (byte array)
+        :return:
+        """
+        return self.identity.get_contact_alias(public_key)
+
+    def public_cb(self, in_pkt):
+        """
+        Handle incoming packet in other peers' public feed.
+        Wait for the whole data in case of blob
+        :param in_pkt: incoming packet
+        """
+        _thread.start_new_thread(lambda: self.__public_cb(in_pkt), tuple())
+
+    def __public_cb(self, pkt):
+        if pkt.typ[0] > 1:
+            return
+        try:
+            if pkt.typ[0] == packet.PKTTYPE_chain20:
+                while not pkt.undo_chain(self.get_blob_function()):
+                    time.sleep(0.2)
+            rx = bipf.loads(pkt.get_content())
+
+            for app_name in self.identity.directory['apps']:
+                # Check that I have this app installed (with appID)
+                if rx.get("a") == self.identity.directory['apps'][app_name].get('appID'):
+                    if rx.get("m") is not None:
+                        # This is a "create" request
+                        self.__add_inst(rx, app_name, pkt)
+                    else:
+                        assert rx.get("x") is not None
+                        self.__find_inst_accepted_remote(rx, app_name, pkt)
+
+        except Exception as err:
+            dbg(ERR, f"failed to decode...: {err}")
+
+    def __find_inst_accepted_remote(self, rx, app_name, pkt):
+        log = self.get_log(self.identity.directory['apps'][app_name]['fid'])
+        app = application.Application(self, log, self.identity.directory['apps'][app_name]['appID'])
+        created = rx.get('c')
+        for i in app.instances:
+            if app.instances[i].get('il') == created or app.instances[i].get('l') == created:
+                app.update_remote_instance_feed(i, rx.get('x'), pkt.fid)
+                return
+            for m in app.instances[i].get('m'):
+                if app.instances[i]['m'][m].get('ir') == created or app.instances[i]['m'][m].get('r') == created:
+                    app.update_remote_instance_feed(i, rx.get('x'), pkt.fid)
+                    return
+
+        raise NotFoundTinyException("Could not find a corresponding instance") # to delete, happens for messages not for us
+
+    def __add_inst(self, rx, app_name, pkt):
+        if self.identity.public not in rx.get("m"):
+            return  # I'm not part of this group
+        log = self.get_log(self.identity.directory['apps'][app_name]['fid'])
+        app = application.Application(self, log, self.identity.directory['apps'][app_name]['appID'])
+
+        try:
+            creator = self.get_contact_alias(pkt.fid)
+            m_aliases = [creator]
+            for m in rx.get("m"):
+                if m == self.identity.public:
+                    continue
+                al = self.get_contact_alias(m)
+                if al is None:
+                    al = creator + "_f_" + util.hex(m)[:4]
+                    self.identity.follow(m, al)
+                m_aliases.append(al)
+
+            if rx.get('c') is not None:
+                inst_id = app.create_inst(m_aliases, None, rx.get('c'))
+                app.update_remote_instance_feed(inst_id, rx.get('c'), pkt.fid)
+        except AlreadyUsedTinyException as er:
+            dbg(ERR, f"Add_app: failed to decode...: {er}")
 
     def __save_keys(self):
         """

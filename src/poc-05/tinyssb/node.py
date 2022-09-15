@@ -7,10 +7,9 @@
 import hashlib
 import _thread
 
-import bipf
 from . import io, packet, util
 from .dbg import *
-from .exception import TinyException, NotFoundTinyException
+from .exception import TinyException
 
 LOGTYPE_private = 0x00  # private fid (not to be shared)
 LOGTYPE_public  = 0x01  # public fid to synchronise with peers
@@ -64,9 +63,9 @@ class NODE:  # a node in the tinySSB forwarding fabric
 
     def start(self):
         self.ioloop = io.IOLOOP(self.faces, self.on_rx)
-        dbg(TERM_NORM, '  starting thread with IO loop')
+        # dbg(TERM_NORM, '  starting thread with IO loop')
         _thread.start_new_thread(self.ioloop.run, tuple())
-        dbg(TERM_NORM, "  starting thread with arq loop")
+        # dbg(TERM_NORM, "  starting thread with arq loop")
         _thread.start_new_thread(self.arq_loop, tuple())
 
     def arm_dmx(self, dmx, fct=None, comment=None):
@@ -362,8 +361,8 @@ class NODE:  # a node in the tinySSB forwarding fabric
                 # dbg(GRA, f"SND {len(wire)} want request to dmx={d} for {h}.[{seq}]")
 
     def request_chain(self, pkt):
-        dbg(YEL, "request_chain", util.hex(pkt.fid)[:8], pkt.seq,
-              util.hex(pkt.chain_nextptr) if pkt.chain_nextptr else None)
+        # dbg(YEL, "request_chain", util.hex(pkt.fid)[:8], pkt.seq,
+        #       util.hex(pkt.chain_nextptr) if pkt.chain_nextptr else None)
         hptr = pkt.chain_nextptr
         if hptr == None: return
         # dbg(GRA, f"+blob @{util.hex(hptr)}")

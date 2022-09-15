@@ -78,7 +78,7 @@ class IdentityTestCase(unittest.TestCase):
     def test_delete_app(self):
         n = len(os.listdir(f"{util.DATA_FOLDER}Charlie/_logs/"))
         app = self.peer.define_app("chess", self.key1)
-        app.create_inst("Chat")
+        app.create_inst()
         self.assertTrue(os.path.exists(f"{util.DATA_FOLDER}Charlie/_logs/{util.hex(app.log.fid)}.log"))
         self.assertIsNotNone(self.peer.directory['apps']['chess'])
         self.peer.delete_app("chess", self.key1)
