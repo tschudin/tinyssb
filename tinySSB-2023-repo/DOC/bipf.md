@@ -6,11 +6,11 @@ some versions of Secure Scuttlebut, including tinySSB.
 
 This document focuses on the bit-level format and also includes test
 vectors. The authoritative places for BIPF are
-[https://github.com/ssbc/bipf-spec](https://github.com/ssbc/bipf-spec)
+[```https://github.com/ssbc/bipf-spec```](https://github.com/ssbc/bipf-spec)
 as well as the repo for a Javascript implementation
-[https://github.com/ssbc/bipf](https://github.com/ssbc/bipf) that
+[```https://github.com/ssbc/bipf```](https://github.com/ssbc/bipf) that
 includes the rationale for BIPF. JSON is documented in
-[https://www.rfc-editor.org/rfc/rfc8259](https://www.rfc-editor.org/rfc/rfc8259).
+[```https://www.rfc-editor.org/rfc/rfc8259```](https://www.rfc-editor.org/rfc/rfc8259).
 
 
 ## Supported Data Types
@@ -54,10 +54,10 @@ EXTENDED: 7 (111) // custom type. Specific type should be indicated by varint at
 
 Note that the ```BOOLNULL``` bit pattern is used for three different atom types.
 
-BIPF values are serialized with a TYPE-LENGTH-VALUE (TLC) encoding.
+BIPF values are serialized with a TYPE-LENGTH-VALUE (TLV) encoding.
 To this end, T and L are combined into a single
 integer value called _tag_ which is encoded with signed LEB128, see
-[https://en.wikipedia.org/wiki/LEB128](https://en.wikipedia.org/wiki/LEB128),
+[```https://en.wikipedia.org/wiki/LEB128```](https://en.wikipedia.org/wiki/LEB128),
 also known as ```varint```. The encoded _tag_ is then prepended to the
 bytes of the encoding of the value V proper.
 
@@ -72,9 +72,10 @@ bits. Signed values are assumed to be represented in two's
 complement. All encoded bytes will have the most significant bit set,
 except the last byte. Zero is encoded as byte 0x00.
 
-## Examples:
+## Examples
 
 ```
+
 operation                   memory content of result
 -------------------------   ------------------------
 
@@ -101,10 +102,37 @@ bipf({#ABCD#:[123,null]})   3d11abcd1c0a7b06
 -------------------------   ------------------------
 
 
+```
 
+
+## Notes
+
+BIPF as described in
+[```https://github.com/ssbc/bipf-spec```](https://github.com/ssbc/bipf-spec)
+uses a fixed-length encoding for integer values (4 bytes, little
+endian, two's complement). With space concerns in mind, tinySSB uses
+the LEB128 (varint) representation, which is already used for encoding
+the length of a BIPF value, hence has no additional programming cost.
 
 
 
 ```
 
-// end of document
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+---
+```
+[```https://PREFIX/tinySSB-2023/DOC/bipf.pdf```](https://PREFIX/tinySSB-2023/DOC/bipf.pdf)
+
