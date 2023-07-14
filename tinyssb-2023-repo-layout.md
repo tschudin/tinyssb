@@ -30,6 +30,11 @@ tinySSB-2023/                   // YYYY as the top level version
      + TAV.md                   // Text-and-Voice chat app
      + Txt.md                   // shared text document app
      README.md                  // how-to for describing tinySSB apps
+   + storage                    // documenting various storing techniques
+     + hashy.md                 // all chunks in a hash-named tree
+     + side_chainy.md           // each sidechain as an independent file
+     + logy.md                  // one inflated log, plus one frontier file
+     README.md
    README.md                    // doc guide (where to find what, also ext links)
  + android/
    + vossbol                    // flagship tinySSB app for Android
