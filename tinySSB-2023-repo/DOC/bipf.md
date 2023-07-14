@@ -1,4 +1,4 @@
-# BIPF - A Serialization Format for JSON-like Data Types
+# BIPF, a Serialization Format for JSON-like Data Types [2023-07-14]
 
 BIPF (Binary In-Place Format) is a serialization format for JSON-like
 data types that is optimized for in-place access. It is used in
@@ -134,5 +134,5 @@ the length of a BIPF value, hence has no additional programming cost.
 
 ---
 ```
-[```https://PREFIX/tinySSB-2023/DOC/bipf.pdf```](https://PREFIX/tinySSB-2023/DOC/bipf.pdf)
+This document located at &nbsp;&nbsp;[```https://PREFIX/tinySSB-2023/DOC/bipf.pdf```](https://PREFIX/tinySSB-2023/DOC/bipf.pdf)
 
